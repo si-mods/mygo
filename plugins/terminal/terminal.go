@@ -531,6 +531,12 @@ type Terminal struct {
 	// set, 0 for the font's.
 	binds    []Keybind
 	fontSize float32
+	// keys and mouse encode what a client sends a terminal no view shows
+	// (EncodeKey, EncodeMouse), with the program's modes; pressed says
+	// whether a button is held, for motion reports.
+	keys         *vt.KeyEncoder
+	mouse        *vt.MouseEncoder
+	mousePressed bool
 	// src is the program's pseudo-terminal, or Conn: nil until the
 	// program starts, from launch, its options.
 	src    io.ReadWriteCloser
@@ -591,7 +597,55 @@ func New(opts Options) (*Terminal, error) {
 	t.binds = keybinds(&opts)
 	t.size = gridSize{80, 24, 8, 16}
 	var err error
-	t.term, err = vt.NewTerminal(80, 24, vt.Effects{
+	t.term, err = vt.NewTerminal(80, 24, t.effects())
+	if err != nil {
+		return nil, err
+	}
+	t.configure()
+	if t.rs, err = vt.NewRenderState(); err != nil {
+		t.term.Free()
+		return nil, err
+	}
+	// Programs asking the colors before a view shows the terminal, or in
+	// one no view shows, get the theme asked for.
+	t.UseTheme(opts.Theme)
+	if opts.Conn != nil {
+		t.src = opts.Conn
+		t.quoting = quotingFor(runtime.GOOS, "")
+		t.run()
+		return t, nil
+	}
+	path, args, err := command(opts.Command)
+	if err != nil {
+		t.rs.Free()
+		t.term.Free()
+		return nil, err
+	}
+	t.quoting = quotingFor(runtime.GOOS, path)
+	dir := opts.Dir
+	if dir == "" {
+		dir, _ = os.UserHomeDir()
+	}
+	t.launch = &pty.Options{Path: path, Args: args, Dir: dir, Env: environment(opts.Env)}
+	// The program starts once a view knows the size of the screen, so
+	// that it draws its first screen at that size; a terminal no view
+	// shows starts after half a second, at 80×24.
+	t.mu.Lock()
+	t.timer = time.AfterFunc(500*time.Millisecond, func() {
+		t.mu.Lock()
+		o := t.launch
+		t.launch = nil
+		t.mu.Unlock()
+		t.start(o)
+	})
+	t.mu.Unlock()
+	return t, nil
+}
+
+// effects are what the emulator asks of the terminal while it processes
+// output.
+func (t *Terminal) effects() vt.Effects {
+	return vt.Effects{
 		WritePTY: func(p []byte) {
 			if !t.replying {
 				t.in.push(append([]byte(nil), p...))
@@ -620,72 +674,38 @@ func New(opts Options) (*Terminal, error) {
 		Notify: func(title, body string) {
 			t.events.notify = append(t.events.notify, [2]string{title, body})
 		},
-	})
-	if err != nil {
-		return nil, err
 	}
+}
+
+// configure applies the terminal's settings to its emulator, a new one or
+// one restored from a snapshot. The caller holds t.mu, or is New, before
+// any goroutine runs.
+func (t *Terminal) configure() {
+	o := &t.opts
 	t.term.SetTerminfoName("xterm-256color")
 	switch {
-	case opts.ImageLimit == 0:
+	case o.ImageLimit == 0:
 		t.term.SetImageLimit(320 << 20)
-	case opts.ImageLimit > 0:
-		t.term.SetImageLimit(uint64(opts.ImageLimit))
+	case o.ImageLimit > 0:
+		t.term.SetImageLimit(uint64(o.ImageLimit))
 	}
 	// Grapheme clusters take the cells of their width, as in Ghostty:
 	// emoji with modifiers and joined emoji take two.
 	t.term.SetModeDefault(vt.ModeGraphemes, true)
 	switch {
-	case opts.Scrollback < 0:
+	case o.Scrollback < 0:
 		t.term.SetScrollback(0)
-	case opts.Scrollback > 0:
-		t.term.SetScrollback(opts.Scrollback)
+	case o.Scrollback > 0:
+		t.term.SetScrollback(o.Scrollback)
 	default:
 		t.term.SetScrollback(10 << 20)
 	}
-	t.term.SetDefaultCursor(vtCursor(opts.Cursor), !opts.NoBlink)
-	if t.rs, err = vt.NewRenderState(); err != nil {
-		t.term.Free()
-		return nil, err
-	}
-	// Programs asking the colors before a view shows the terminal, or in
-	// one no view shows, get the theme asked for.
-	t.UseTheme(opts.Theme)
-	if opts.Conn != nil {
-		t.src = opts.Conn
-		t.quoting = quotingFor(runtime.GOOS, "")
-		t.run()
-		return t, nil
-	}
-	path, args, err := command(opts.Command)
-	if err != nil {
-		t.rs.Free()
-		t.term.Free()
-		return nil, err
-	}
-	t.quoting = quotingFor(runtime.GOOS, path)
-	dir := opts.Dir
-	if dir == "" {
-		dir, _ = os.UserHomeDir()
-	}
-	t.launch = &pty.Options{Path: path, Args: args, Dir: dir, Env: environment(opts.Env)}
+	t.term.SetDefaultCursor(vtCursor(o.Cursor), !o.NoBlink)
 	if runtime.GOOS == "windows" {
 		// ConPTY keeps a screen of its own, which a resize pulling rows
 		// back from the scrollback would disagree with.
 		t.term.SetResizePullBack(false)
 	}
-	// The program starts once a view knows the size of the screen, so
-	// that it draws its first screen at that size; a terminal no view
-	// shows starts after half a second, at 80×24.
-	t.mu.Lock()
-	t.timer = time.AfterFunc(500*time.Millisecond, func() {
-		t.mu.Lock()
-		o := t.launch
-		t.launch = nil
-		t.mu.Unlock()
-		t.start(o)
-	})
-	t.mu.Unlock()
-	return t, nil
 }
 
 // run reads the output and writes the input of the program, or Conn.
@@ -1150,6 +1170,14 @@ func (t *Terminal) Close() error {
 	t.mu.Lock()
 	t.rmu.Lock()
 	t.endSearch()
+	if t.keys != nil {
+		t.keys.Free()
+		t.keys = nil
+	}
+	if t.mouse != nil {
+		t.mouse.Free()
+		t.mouse = nil
+	}
 	t.term.Free()
 	t.term = nil
 	t.rs.Free()

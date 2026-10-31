@@ -3,7 +3,9 @@ package vt
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -611,5 +613,67 @@ func TestDeferredClipboardReadKitty(t *testing.T) {
 		"\x1b]5522;type=read:status=DONE\x1b\\"
 	if got := out.String(); got != wantEmpty {
 		t.Errorf("an empty listing: %q, want %q", got, wantEmpty)
+	}
+}
+
+// TestSnapshot encodes a terminal's whole state and restores it into
+// another, the scrollback, cursor and an unfinished escape sequence
+// included.
+func TestSnapshot(t *testing.T) {
+	loadLib(t)
+	term, err := NewTerminal(20, 5, Effects{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Free()
+	term.Write([]byte("\x1b[1;32mgreen\x1b[0m line\r\n"))
+	for i := range 12 {
+		term.Write([]byte("row " + strconv.Itoa(i) + "\r\n"))
+	}
+	// Unfinished input, which a snapshot carries as the continuation.
+	term.Write([]byte("end\x1b["))
+	x, y := term.Cursor()
+	text := term.Text()
+	total := term.Scrollbar().Total
+	if total <= 5 {
+		t.Fatalf("scrollbar total = %d, want scrollback", total)
+	}
+
+	snap, err := term.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap) < 10 || string(snap[:8]) != "GHOSTSNP" {
+		t.Fatalf("snapshot starts %q", snap[:min(len(snap), 8)])
+	}
+	if v := binary.LittleEndian.Uint16(snap[8:10]); v != 1 {
+		t.Fatalf("snapshot version = %d, want 1", v)
+	}
+
+	other, err := DecodeSnapshot(snap, Effects{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Free()
+	if cols, rows := other.Size(); cols != 20 || rows != 5 {
+		t.Errorf("size = %d×%d, want 20×5", cols, rows)
+	}
+	if got := other.Text(); got != text {
+		t.Errorf("text = %q, want %q", got, text)
+	}
+	if ox, oy := other.Cursor(); ox != x || oy != y {
+		t.Errorf("cursor = %d,%d, want %d,%d", ox, oy, x, y)
+	}
+	if got := other.Scrollbar().Total; got != total {
+		t.Errorf("scrollback = %d rows, want %d", got, total)
+	}
+	// The unfinished escape sequence goes on in the restored terminal.
+	term.Write([]byte("A"))
+	other.Write([]byte("A"))
+	if tx, ty := term.Cursor(); tx != x || ty != y-1 {
+		t.Errorf("cursor after the sequence = %d,%d, want %d,%d", tx, ty, x, y-1)
+	}
+	if ox, oy := other.Cursor(); ox != x || oy != y-1 {
+		t.Errorf("restored cursor after the sequence = %d,%d, want %d,%d", ox, oy, x, y-1)
 	}
 }

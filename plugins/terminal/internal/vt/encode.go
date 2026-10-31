@@ -92,14 +92,115 @@ const (
 	KeyArrowUp
 )
 
-// KeyEscape and the function keys follow the 41 keys of the numpad.
+// KeyNumLock and the 40 keys of the numpad follow the arrow keys.
+const (
+	KeyNumLock Key = KeyArrowUp + 1 + iota
+	KeyNumpad0
+	KeyNumpad1
+	KeyNumpad2
+	KeyNumpad3
+	KeyNumpad4
+	KeyNumpad5
+	KeyNumpad6
+	KeyNumpad7
+	KeyNumpad8
+	KeyNumpad9
+	KeyNumpadAdd
+	KeyNumpadBackspace
+	KeyNumpadClear
+	KeyNumpadClearEntry
+	KeyNumpadComma
+	KeyNumpadDecimal
+	KeyNumpadDivide
+	KeyNumpadEnter
+	KeyNumpadEqual
+	KeyNumpadMemoryAdd
+	KeyNumpadMemoryClear
+	KeyNumpadMemoryRecall
+	KeyNumpadMemoryStore
+	KeyNumpadMemorySubtract
+	KeyNumpadMultiply
+	KeyNumpadParenLeft
+	KeyNumpadParenRight
+	KeyNumpadSubtract
+	KeyNumpadSeparator
+	KeyNumpadUp
+	KeyNumpadDown
+	KeyNumpadRight
+	KeyNumpadLeft
+	KeyNumpadBegin
+	KeyNumpadHome
+	KeyNumpadEnd
+	KeyNumpadInsert
+	KeyNumpadDelete
+	KeyNumpadPageUp
+	KeyNumpadPageDown
+)
+
+// KeyEscape and the function, media and legacy keys follow the 41 keys of
+// the numpad.
 const (
 	KeyEscape Key = KeyArrowUp + 1 + 41 + iota
 	KeyF1
+	KeyF2
+	KeyF3
+	KeyF4
+	KeyF5
+	KeyF6
+	KeyF7
+	KeyF8
+	KeyF9
+	KeyF10
+	KeyF11
+	KeyF12
+	KeyF13
+	KeyF14
+	KeyF15
+	KeyF16
+	KeyF17
+	KeyF18
+	KeyF19
+	KeyF20
+	KeyF21
+	KeyF22
+	KeyF23
+	KeyF24
+	KeyF25
+	KeyFn
+	KeyFnLock
+	KeyPrintScreen
+	KeyScrollLock
+	KeyPause
+	KeyBrowserBack
+	KeyBrowserFavorites
+	KeyBrowserForward
+	KeyBrowserHome
+	KeyBrowserRefresh
+	KeyBrowserSearch
+	KeyBrowserStop
+	KeyEject
+	KeyLaunchApp1
+	KeyLaunchApp2
+	KeyLaunchMail
+	KeyMediaPlayPause
+	KeyMediaSelect
+	KeyMediaStop
+	KeyMediaTrackNext
+	KeyMediaTrackPrevious
+	KeyPower
+	KeySleep
+	KeyAudioVolumeDown
+	KeyAudioVolumeMute
+	KeyAudioVolumeUp
+	KeyWakeUp
+	KeyCopy
+	KeyCut
+	KeyPaste
 )
 
 // Mods are modifier keys (GhosttyMods): Shift, Ctrl, Alt and Super, the
-// same bits as MyGo's.
+// same bits as MyGo's, Caps Lock and Num Lock, and the right-hand side of
+// each of the first four, which is only meaningful with its modifier.
 type Mods uint16
 
 const (
@@ -107,6 +208,12 @@ const (
 	ModCtrl
 	ModAlt
 	ModSuper
+	ModCapsLock
+	ModNumLock
+	ModShiftRight
+	ModCtrlRight
+	ModAltRight
+	ModSuperRight
 )
 
 // KeyAction is what happened to a key.
