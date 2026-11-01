@@ -4,12 +4,12 @@
       "files": {
         "darwin-amd64": {
           "name": "libghostty-vt.dylib",
-          "sha256": "f9e9a3083b407798e299e4e67164af4485c3c460cc3053daf8cfa13acc68b7bd",
+          "sha256": "772a063b1fcd7118b5a51f645ecf704e42ccb4ab7861863c61c9db3d88a08538",
           "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-darwin-amd64.dylib"
         },
         "darwin-arm64": {
           "name": "libghostty-vt.dylib",
-          "sha256": "b8682a6d9f2dc7396db1a923690a9eaba7d5ec730d87476fbc05822fd12cdaef",
+          "sha256": "38ccfa9e75e3664c7c516c0ecf53af71e9a3a7b357e5922ede274a467c609110",
           "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-darwin-arm64.dylib"
         },
         "linux-amd64": {
@@ -19,17 +19,17 @@
         },
         "linux-arm64": {
           "name": "libghostty-vt.so",
-          "sha256": "5b7080a471062b0a5cb52d7b9c8b510becfdac0f54a08c04cd0b8847bbeae848",
+          "sha256": "7403c22160cb580b69fd4444b94428b7805bdcaab71ba11d34f59e8625356940",
           "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-linux-arm64.so"
         },
         "windows-amd64": {
           "name": "ghostty-vt.dll",
-          "sha256": "571f1aec954978c53e25a89efb920d88c1bb973878b0ec7790f49e61bdad53f2",
+          "sha256": "9e03887451ad82284a8d90c06fd1a7ccb1ea27941031384443f285d014e8b1f4",
           "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-windows-amd64.dll"
         },
         "windows-arm64": {
           "name": "ghostty-vt.dll",
-          "sha256": "5374ac50dd11c5c9dfc7071edd43b1193bd9241d35596f61f1a1b376838ddf71",
+          "sha256": "042d18fcb4a6c1d32dee2f564e4ca7fbb83756bd2116b84ad19914798df5f8db",
           "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-windows-arm64.dll"
         }
       },
