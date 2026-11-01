@@ -136,6 +136,7 @@ const (
 	optScrollbackMaxBytes  = 27
 	optDesktopNotification = 29
 	optProgressReport      = 30
+	optContinuationMax     = 31
 	optModeDefault         = 33
 	optMode                = 34
 	optTerminfoName        = 37
@@ -167,6 +168,21 @@ func NewTerminal(cols, rows int, effects Effects) (*Terminal, error) {
 	if err := result(call(fnTerminalNew, 0, uintptr(unsafe.Pointer(&t.h)), uintptr(clamp16(cols)), uintptr(clamp16(rows)))); err != nil {
 		return nil, err
 	}
+	t.init()
+	// Images of the Kitty graphics protocol are refused until SetImageLimit
+	// takes them, so that programs fall back to something else.
+	t.SetImageLimit(0)
+	return t, nil
+}
+
+// snapshotContinuationMax is the most bytes of an escape sequence or UTF-8
+// character that a write left unfinished are kept for snapshots: the
+// largest buffer of the built-in APC protocols, which the library's
+// decoder accepts by default too.
+const snapshotContinuationMax = 65 << 20
+
+// init registers t's handle and gives it the callbacks of its effects.
+func (t *Terminal) init() {
 	terminals.Lock()
 	if terminals.m == nil {
 		terminals.m = map[uintptr]*Terminal{}
@@ -188,10 +204,12 @@ func NewTerminal(cols, rows int, effects Effects) (*Terminal, error) {
 	t.setValue(optDeviceAttributes, cbDeviceAttributes)
 	t.setValue(optDesktopNotification, cbDesktopNotification)
 	t.setValue(optProgressReport, cbProgressReport)
-	// Images of the Kitty graphics protocol are refused until SetImageLimit
-	// takes them, so that programs fall back to something else.
-	t.SetImageLimit(0)
-	return t, nil
+	// A snapshot carries the bytes of an escape sequence or character
+	// that the last write left unfinished, which the terminal keeps from
+	// then on (the library's Snapshot refuses without them). The limit is
+	// a maximum, not an allocation.
+	n := uintptr(snapshotContinuationMax)
+	t.set(optContinuationMax, unsafe.Pointer(&n))
 }
 
 // set sets an option to a pointer to its value. The pointer is converted

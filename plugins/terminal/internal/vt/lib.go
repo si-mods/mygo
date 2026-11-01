@@ -42,6 +42,8 @@ var (
 
 	fnFocusEncode, fnPasteEncode, fnPasteIsSafe, fnTerminalPaste, fnFree uintptr
 
+	fnSnapshotEncodeBuf, fnSnapshotDecoderNewBuf, fnSnapshotDecoderSet, fnSnapshotDecoderDecode, fnSnapshotDecoderFree uintptr
+
 	fnGestureNew, fnGestureFree, fnGestureReset, fnGestureGet, fnGestureEventNew, fnGestureEventFree,
 	fnGestureEventSet, fnGestureEvent, fnSelectAll uintptr
 
@@ -127,6 +129,11 @@ var symbols = []struct {
 	{"ghostty_terminal_paste", &fnTerminalPaste},
 	{"ghostty_paste_is_safe", &fnPasteIsSafe},
 	{"ghostty_free", &fnFree},
+	{"ghostty_snapshot_encode_buf", &fnSnapshotEncodeBuf},
+	{"ghostty_snapshot_decoder_new_buf", &fnSnapshotDecoderNewBuf},
+	{"ghostty_snapshot_decoder_set", &fnSnapshotDecoderSet},
+	{"ghostty_snapshot_decoder_decode", &fnSnapshotDecoderDecode},
+	{"ghostty_snapshot_decoder_free", &fnSnapshotDecoderFree},
 	{"ghostty_selection_gesture_new", &fnGestureNew},
 	{"ghostty_selection_gesture_free", &fnGestureFree},
 	{"ghostty_selection_gesture_reset", &fnGestureReset},
@@ -319,8 +326,11 @@ var enums = []struct {
 }{
 	{"GhosttyKey", "A", int64(KeyA)},
 	{"GhosttyKey", "ARROW_UP", int64(KeyArrowUp)},
+	{"GhosttyKey", "NUM_LOCK", int64(KeyNumLock)},
+	{"GhosttyKey", "NUMPAD_1", int64(KeyNumpad1)},
 	{"GhosttyKey", "ESCAPE", int64(KeyEscape)},
 	{"GhosttyKey", "F1", int64(KeyF1)},
+	{"GhosttyKey", "F12", int64(KeyF12)},
 	{"GhosttyKeyAction", "REPEAT", int64(KeyRepeat)},
 	{"GhosttyMouseAction", "MOTION", int64(MouseMotion)},
 	{"GhosttyMouseButton", "FIVE", WheelDown},
