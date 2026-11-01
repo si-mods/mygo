@@ -141,6 +141,56 @@ the window drawn as active, with a private AppKit call that a later macOS may
 drop, the window then drawn as any other: apps for the Mac App Store
 should leave it off.
 
+### The system's glass in an element
+
+`ui.SystemGlass` is a material that shows the system's own Liquid Glass
+behind an element: AppKit's `NSGlassEffectView`, the view SwiftUI's
+`glassEffect` draws with, on macOS 26 and later. The glass plugin's
+shader glass refracts only what the window's content painted, so over the
+window's material, which the content leaves transparent, it has nothing
+to show and turns dark. The system's glass shows the material, as a
+selected row of a sidebar over it does in AppKit's apps:
+
+```go
+tint := ui.Transparent
+if !c.Theme().Dark {
+	tint = ui.RGBA(29, 29, 29, 0.25)
+}
+ui.Row(c).Padding(6, 10).Radius(16.5).Material(ui.SystemGlass{
+	Tint:     tint,
+	Fallback: glass.Glass{}, // elsewhere
+}).Children(func() {
+	ui.Text(c, "Selected")
+})
+```
+
+`Style` is `ui.SystemGlassRegular`, the default, or `ui.SystemGlassClear`;
+`Tint` tints the glass, as `NSGlassEffectView`'s `tintColor`; the
+element's `Radius` rounds it. The element paints a hole through the
+window's content, shaped by its box and radius, and the window puts a
+glass view under the content there, over its material and under its web
+views. The element's border and children, and what paints after it, show
+over the glass. The glass follows the element every frame that paints it:
+laid out, scrolled, clipped by scroll containers, moved, scaled and faded
+(its opacity). It hides when the element stops painting: no longer built,
+hidden, or scrolled out of sight. Frames showing it present with Core
+Animation's transaction, so the glass and the hole move together.
+
+`Fallback`, any material, paints the element where the system's glass
+cannot show; without one, the `Tint` paints as a color. That is before
+macOS 26, on Windows, Linux and in browsers, in `ui.Tester` and
+`ui.Render`, so that tests see the fallback, inside an element that
+renders into a bitmap (`Effect`, `Cache`, `Blur`, a `Canvas`), and in a
+`Draw` callback.
+
+The glass view is upright and has one radius: a rotated or skewed element
+shows it over the bounds of its box, and an element whose corners differ
+gets its first corner's. It is clipped to the rectangle that the scroll
+containers and clips around the element leave, not to their rounded
+corners. It shows under web views (`ui.WebView`), not over their pages.
+Captures of the window's content (its frames' pixels) show the hole, not
+the glass.
+
 ## Closing
 
 A view can close its own window, from a button's click or its callback.

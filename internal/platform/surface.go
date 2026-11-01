@@ -90,6 +90,36 @@ type MaterialSurface interface {
 	ShowsMaterial() bool
 }
 
+// GlassSurface is a Surface whose window can show the system's own Liquid
+// Glass under its content, as macOS 26's NSGlassEffectView: package ui
+// paints a hole through its frame where it shows (ui.SystemGlass), and the
+// glass sits under the frame, over the window's material. Package ui
+// reaches it only once a view paints such glass, for apps that paint none
+// not to link it.
+type GlassSurface interface {
+	// SupportsGlass reports whether the window can show the glass now.
+	SupportsGlass() bool
+	// PlaceGlass shows the glass where the content's last frame painted
+	// it, in the order it painted it, and hides the rest.
+	PlaceGlass(glass []GlassPlacement)
+}
+
+// GlassPlacement is where a frame shows the system's glass, in DIPs from
+// the top-left corner of the content.
+type GlassPlacement struct {
+	// Frame is the glass's box; Clip the part of it that shows, which the
+	// frame leaves transparent.
+	Frame, Clip RectF
+	// Radius rounds the glass's corners, in DIPs.
+	Radius float64
+	// Clear is the clear style of the glass, rather than the regular one.
+	Clear bool
+	// Tint tints the glass, none when transparent.
+	Tint Color
+	// Opacity fades the glass, from 0 to 1.
+	Opacity float64
+}
+
 // PacedSurface is a Surface whose frames following each other come at the
 // display's refreshes, marked Paced: a renderer that waits for the display
 // lets such a frame draw once the display can take it, with FrameNow.

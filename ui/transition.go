@@ -817,6 +817,12 @@ func (rt *engine) animateColors(e *node, r *transition) {
 	now := rt.c.now
 	if r.colorFrame != rt.frame {
 		target := [2]Color{e.bg, e.borderC}
+		if e.fill == fillMaterial {
+			// A material paints in place of the background color, which
+			// shows nothing: what Selected or Background set under it
+			// must not fade in or out as the material comes or goes.
+			target[0] = Color{}
+		}
 		switch {
 		case !r.colorSet || r.colorFrame+1 != rt.frame:
 			// Not painted in the frame before: its colors show at once.

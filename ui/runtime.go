@@ -189,6 +189,10 @@ type engine struct {
 	webPlaces []webPlace
 	webOut    []placedWebView
 	webShown  bool
+	// glassPlaces are where the frame painted the system's glass
+	// (SystemGlass), in the window's DIPs, and glassSent what the host
+	// got of them last.
+	glassPlaces, glassSent []platform.GlassPlacement
 	// maxButton is where the frame shows the window's maximize button
 	// (MaximizeButton), and maxSent what the host got of it, in the
 	// window's DIPs.
@@ -675,6 +679,7 @@ func (rt *engine) runFrame() {
 	rt.insp.lap(2)
 	rt.host.present(&rt.scene)
 	rt.placeWebViews()
+	rt.placeGlass()
 	// The window hit-tests its maximize button in its own DIPs.
 	if r := rt.windowRect(rt.maxButton); r != rt.maxSent {
 		rt.maxSent = r
@@ -903,6 +908,7 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	rt.stats.lap(phasePaint)
 	rt.insp.repainted(time.Since(start))
 	rt.host.present(&rt.scene)
+	rt.placeGlass()
 	rt.stats.lap(phasePresent)
 	rt.text.EndFrame()
 	rt.next()
