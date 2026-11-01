@@ -4,37 +4,37 @@
       "files": {
         "darwin-amd64": {
           "name": "libghostty-vt.dylib",
-          "sha256": "421e98d2683b39555209c59395655b4a217da0382e7669c92f6dff3949832664",
-          "url": "https://github.com/egoist/mygo/releases/download/libghostty-vt-befcdfd2c3a1/libghostty-vt-darwin-amd64.dylib"
+          "sha256": "772a063b1fcd7118b5a51f645ecf704e42ccb4ab7861863c61c9db3d88a08538",
+          "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-darwin-amd64.dylib"
         },
         "darwin-arm64": {
           "name": "libghostty-vt.dylib",
-          "sha256": "6f385d3221f8c776ba40530db9baf8c71478907897959849896eeb0ddbf16b41",
-          "url": "https://github.com/egoist/mygo/releases/download/libghostty-vt-befcdfd2c3a1/libghostty-vt-darwin-arm64.dylib"
+          "sha256": "38ccfa9e75e3664c7c516c0ecf53af71e9a3a7b357e5922ede274a467c609110",
+          "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-darwin-arm64.dylib"
         },
         "linux-amd64": {
           "name": "libghostty-vt.so",
-          "sha256": "9dcd8af0de67778a561f436cb673a9fb1738be8fa00849dad49606baed1e57d7",
-          "url": "https://github.com/egoist/mygo/releases/download/libghostty-vt-befcdfd2c3a1/libghostty-vt-linux-amd64.so"
+          "sha256": "076e5241847156749e394d26eb963e82e0b3961e055f3d0263f7d2cac56153a2",
+          "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-linux-amd64.so"
         },
         "linux-arm64": {
           "name": "libghostty-vt.so",
-          "sha256": "fb163f8f123206956751f1c4f0303b40899513b7dc171a8ab8d85ba7cd541bc0",
-          "url": "https://github.com/egoist/mygo/releases/download/libghostty-vt-befcdfd2c3a1/libghostty-vt-linux-arm64.so"
+          "sha256": "7403c22160cb580b69fd4444b94428b7805bdcaab71ba11d34f59e8625356940",
+          "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-linux-arm64.so"
         },
         "windows-amd64": {
           "name": "ghostty-vt.dll",
-          "sha256": "53e8e2dd979702e8f2c48107af19be5a76efc2e88eb7cf1097218e899665da41",
-          "url": "https://github.com/egoist/mygo/releases/download/libghostty-vt-befcdfd2c3a1/libghostty-vt-windows-amd64.dll"
+          "sha256": "9e03887451ad82284a8d90c06fd1a7ccb1ea27941031384443f285d014e8b1f4",
+          "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-windows-amd64.dll"
         },
         "windows-arm64": {
           "name": "ghostty-vt.dll",
-          "sha256": "de56a362f12cce8be38e883ffc8aec90a890e0574eb73aac6e833a60fda26064",
-          "url": "https://github.com/egoist/mygo/releases/download/libghostty-vt-befcdfd2c3a1/libghostty-vt-windows-arm64.dll"
+          "sha256": "042d18fcb4a6c1d32dee2f564e4ca7fbb83756bd2116b84ad19914798df5f8db",
+          "url": "https://github.com/si-mods/mygo/releases/download/libghostty-vt-dc8f59943ce9/libghostty-vt-windows-arm64.dll"
         }
       },
       "name": "libghostty-vt",
-      "source": "https://github.com/ghostty-org/ghostty/tree/befcdfd2c3a1cb24d9ec886e93c95b2b5daa7028"
+      "source": "https://github.com/ghostty-org/ghostty/tree/dc8f59943ce94b75ffadc45cc4f36eca6a7ed2ae"
     }
   ]
 }

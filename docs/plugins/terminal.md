@@ -657,7 +657,7 @@ To build libghostty-vt from Ghostty's sources:
 
 ```sh
 git clone https://github.com/ghostty-org/ghostty && cd ghostty
-zig build -Demit-lib-vt -Doptimize=ReleaseFast
+zig build -Demit-lib-vt -Doptimize=fast
 MYGO_GHOSTTY_VT=$PWD/zig-out/lib/libghostty-vt.dylib go run ./examples/terminal
 ```
 
