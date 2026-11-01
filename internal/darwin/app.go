@@ -38,7 +38,9 @@ type Backend struct {
 	notifyDelegate id
 	// notifyAnswered records that the user has answered whether the app
 	// may show notifications; notifyWaiting holds those shown meanwhile.
-	notifyAnswered  bool
+	notifyAnswered bool
+	// notifyAsking is set while the request for it waits for the answer.
+	notifyAsking    bool
 	notifyWaiting   []waitingNotification
 	notifyPreparing map[string]func()
 
@@ -397,6 +399,10 @@ func (a appController) IsHidden() bool                          { return sendBoo
 func (a appController) IsActive() bool                          { return sendBool(a.b.app, "isActive") }
 
 func (a appController) SetBadge(label string) {
+	// The Dock shows a badge only for an app the user has answered for.
+	if label != "" {
+		a.b.requestNotificationAuthorization()
+	}
 	tile := send(a.b.app, "dockTile")
 	var s id
 	if label != "" {

@@ -129,13 +129,23 @@ func (b *Backend) ShowNotification(n *platform.Notification, done func(error)) {
 	// only prompts the first time; afterwards it answers at once, and
 	// adding a notification fails when System Settings does not allow it.
 	b.notifyWaiting = append(b.notifyWaiting, waitingNotification{n, done})
-	if len(b.notifyWaiting) > 1 {
+	b.requestNotificationAuthorization()
+}
+
+// requestNotificationAuthorization asks the user once whether the app may
+// show notifications, with their badge: the Dock shows no badge on an app
+// the user has not answered for, as the delegate attached at launch
+// registers it with the system. Notifications shown while it waits are
+// shown after the answer. It does nothing once asked.
+func (b *Backend) requestNotificationAuthorization() {
+	if b.notifyAnswered || b.notifyAsking || !b.NotificationsSupported() {
 		return
 	}
+	b.notifyAsking = true
 	withPool(func() {
 		blk := newBlock(func(_ objc.Block, granted bool, err id) {
 			b.runOnMain(func() {
-				b.notifyAnswered = true
+				b.notifyAnswered, b.notifyAsking = true, false
 				waiting := b.notifyWaiting
 				b.notifyWaiting = nil
 				for _, w := range waiting {
