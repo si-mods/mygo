@@ -13,14 +13,25 @@ import (
 var glassWindows = map[*headless]*glassLog{}
 
 // glassLog is what a Tester's window was told of the system's glass: each
-// list the frames sent.
-type glassLog struct{ sent [][]platform.GlassPlacement }
+// list the frames sent, and, as each came, whether the frame the window
+// showed had a hole at the middle of each of its placements.
+type glassLog struct {
+	sent  [][]platform.GlassPlacement
+	shown [][]bool
+}
 
 func (h *headless) supportsGlass() bool { return glassWindows[h] != nil }
 
 func (h *headless) placeGlass(glass []platform.GlassPlacement) {
 	if l := glassWindows[h]; l != nil {
 		l.sent = append(l.sent, append([]platform.GlassPlacement(nil), glass...))
+		img := h.image()
+		var shown []bool
+		for _, g := range glass {
+			c := img.RGBAAt(int(g.Frame.X+g.Frame.W/2), int(g.Frame.Y+g.Frame.H/2))
+			shown = append(shown, c.A == 0)
+		}
+		l.shown = append(l.shown, shown)
 	}
 }
 
@@ -174,6 +185,82 @@ func TestSystemGlassFollows(t *testing.T) {
 	tt.Frame()
 	if g := l.last(); len(g) != 0 {
 		t.Errorf("no longer built, the glass shows at %+v", g)
+	}
+}
+
+// The glass is sent right after the frame that moves its hole, as a
+// sidebar's selection moving from one row to another (gorex#142), so that
+// the window moves both in the same Core Animation transaction; frames
+// that move nothing send nothing, partial repaints included.
+func TestSystemGlassMovesWithItsFrame(t *testing.T) {
+	sel := 0
+	tt := coreNewTester(func(c *context) {
+		c.Root().Background(RGB(255, 255, 255))
+		for i := range 2 {
+			row := coreBox(c).Absolute().Left(10).Top(float32(10+40*i)).Size(100, 32).Radius(16).
+				Transition(ElementTransition{Colors: true, Duration: 160 * time.Millisecond})
+			if i == sel {
+				row.Material(SystemGlass{Tint: Transparent})
+			}
+		}
+		// A drawing that moves with each frame, repainted alone.
+		coreBox(c).Absolute().Left(150).Top(10).Size(20, 20).Draw(func(p *Painter, r Rect) {
+			p.AnimationFrame()
+			p.Fill(r, RGB(0, 0, 255), 0)
+		})
+	}, 200, 100)
+	l := withSystemGlass(t, tt)
+	at := func(y float64) platform.GlassPlacement {
+		r := platform.RectF{X: 10, Y: y, W: 100, H: 32}
+		return platform.GlassPlacement{Frame: r, Clip: r, Radius: 16, Opacity: 1}
+	}
+	// holesShown reports whether the window showed the holes of the i-th
+	// list sent, and only those, as it came: what the frame presented
+	// before it painted.
+	holesShown := func(i int) bool {
+		for _, ok := range l.shown[i] {
+			if !ok {
+				return false
+			}
+		}
+		return true
+	}
+	if g := l.last(); len(g) != 1 || g[0] != at(10) || !holesShown(len(l.sent)-1) {
+		t.Fatalf("the first frame showing the glass sent %+v, its hole shown %v: want it at the first row, after the frame painting its hole", g, l.shown)
+	}
+
+	// Frames that move nothing, as the drawing's repaints, send nothing.
+	sent, parts := len(l.sent), tt.rt.partPaints
+	for range 3 {
+		tt.Advance(16 * time.Millisecond)
+	}
+	if tt.rt.partPaints == parts {
+		t.Fatal("the drawing was not repainted alone")
+	}
+	if len(l.sent) != sent {
+		t.Fatalf("frames moving no glass sent %d lists: want none", len(l.sent)-sent)
+	}
+
+	// The selection moves: the glass goes from the old row to the new one
+	// right after the frame moving the hole, and with no other list.
+	sel = 1
+	tt.Frame()
+	if len(l.sent) != sent+1 || !holesShown(sent) {
+		t.Fatalf("moving the selection sent %d lists, holes shown %v: want one, after the frame moving the hole to the second row", len(l.sent)-sent, l.shown[sent:])
+	}
+	// The old row's hole is gone from the frame shown: white again.
+	if c := tt.Image().RGBAAt(60, 26); c.A != 255 {
+		t.Errorf("the row the glass left shows %v: want the white under it", c)
+	}
+	if g := l.last(); len(g) != 1 || g[0] != at(50) {
+		t.Fatalf("the glass shows at %+v: want the second row only", g)
+	}
+	// The frames after, repainted alone or whole, move nothing.
+	sent = len(l.sent)
+	tt.Advance(16 * time.Millisecond)
+	tt.Frame()
+	if len(l.sent) != sent {
+		t.Errorf("after the move, frames sent %d lists: want none", len(l.sent)-sent)
 	}
 }
 
