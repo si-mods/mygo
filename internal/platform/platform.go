@@ -826,9 +826,10 @@ type WindowHandler interface {
 
 	// SurfaceEvent delivers input on the window's Surface, and changes of
 	// it. For FileDragOver and FileDrop it reports whether the content
-	// takes the files where they are, and for KeyPressed whether it took
+	// takes the files where they are, for KeyPressed whether it took
 	// the key itself, which the system then leaves alone (Windows opens no
-	// menu for Alt and the key); it returns false for other events.
+	// menu for Alt and the key), and for SurfaceCommandEnabled whether the
+	// command would act; it returns false for other events.
 	SurfaceEvent(ev SurfaceEvent) bool
 }
 
@@ -1042,6 +1043,10 @@ type Shell interface {
 	// FileIcon returns the icon the file manager shows for a file, a
 	// folder or an application, as a PNG image of size by size pixels.
 	FileIcon(path string, size int) ([]byte, error)
+	// TypeIcon returns the icon the file manager shows for files with the
+	// extension ext (without its dot), as FileIcon does, though no such
+	// file exists.
+	TypeIcon(ext string, size int) ([]byte, error)
 	// OpenApplication starts the application at Application.Path, or
 	// brings it to the front.
 	OpenApplication(path string) error

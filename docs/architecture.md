@@ -1837,7 +1837,15 @@ backend, which:
   else through `WindowHandler.MenuItemClicked` for a window's menu, or
   `AppHandler.MenuItemClicked` for menus without one; the core toggles
   checkbox/radio state, performs window and view roles and calls `Click`
-  with the menu's window, even while a submenu has focus instead.
+  with the menu's window, even while a submenu has focus instead,
+- enables the edit roles' items of native UI as the content answers a
+  `SurfaceCommandEnabled` (package ui's `commandEnabled`, which follows
+  `editEvent`): on macOS the menus holding them validate their items
+  (`autoenablesItems`), the surface answering `validateMenuItem:` and the
+  menu target keeping the app's state, which a disabled role's item
+  targets; Windows and Linux ask as a menu opens (`WM_INITMENUPOPUP`, a
+  submenu's `map`, a popup before it shows), and again before a role's
+  shortcut runs.
 
 Item icons (`MenuItem.Icon`, made by `NewMenuIcon`) travel as a
 `*platform.MenuIcon`, which the core shares between the icons of the same
@@ -4407,8 +4415,10 @@ profile).
 
 ## Testing
 
-Regenerate checked UI wrappers with `go generate ./ui`. Native library and
-shader generation commands are listed in [AGENTS.md](../AGENTS.md).
+Regenerate checked UI wrappers with `go generate ./ui`, then what
+`mygo migrate-ui` knows of their results (`internal/uimigrate/uiapi.go`,
+which `TestUIAPI` checks) with `go test ./internal/uimigrate -update`.
+Native library and shader generation commands are listed in [AGENTS.md](../AGENTS.md).
 
 | suite | command | covers |
 |---|---|---|
@@ -4802,6 +4812,7 @@ which npm allows only for packages that exist: the first release uses an
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material, light or dark per window (`SetWindowButtonsTheme`); snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
 | file icons | `NSWorkspace iconForFile:` drawn into an sRGB `NSBitmapImageRep` at the size | GIO's `standard::icon`, or a desktop entry's `GAppInfo` icon, through `gtk_icon_theme_lookup_by_gicon` | `IShellItemImageFactory::GetImage` (`SIIGBF_ICONONLY`), a DIB with straight alpha |
+| icons of file types (`TypeIcon`) | `UTType typeWithFilenameExtension:` → `NSWorkspace iconForContentType:` (`iconForFileType:` before macOS 11), drawn as file icons | `g_content_type_guess` of a name with the extension → `g_content_type_get_icon`, through the icon theme | the image factory of a simple ID list (`SHSimpleIDListFromPath`), which needs no file, as file icons |
 | installed apps | `.app` bundles of the Applications folders, `NSFileManager displayNameAtPath:` and `NSBundle`, off the main thread; launched with `openURL:` | `g_app_info_get_all` filtered by `g_app_info_should_show`; launched with `g_app_info_launch` and GDK's launch context | `FOLDERID_AppsFolder` enumerated in an STA of its own; launched with `ShellExecute` of `shell:AppsFolder\<ID>` |
 | badge count | Dock tile label | Unity launcher API count | not shown |
 | skip taskbar | ignored | skip-taskbar hint | `ITaskbarList::DeleteTab` (the window style is untouched) |
