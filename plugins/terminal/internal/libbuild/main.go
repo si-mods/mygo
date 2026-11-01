@@ -35,7 +35,7 @@ import (
 )
 
 // commit is the commit of Ghostty this package binds.
-const commit = "befcdfd2c3a1cb24d9ec886e93c95b2b5daa7028"
+const commit = "dc8f59943ce94b75ffadc45cc4f36eca6a7ed2ae"
 
 var targets = []struct {
 	goos, goarch, zig string
@@ -54,7 +54,7 @@ var targets = []struct {
 func main() {
 	src := flag.String("src", "", "a checkout of Ghostty, at the commit (cloned into the user's cache when empty)")
 	out := flag.String("out", "build", "the directory of the libraries")
-	release := flag.String("release", "https://github.com/egoist/mygo/releases/download/libghostty-vt-"+commit[:12], "the URL of the release hosting the libraries")
+	release := flag.String("release", "https://github.com/si-mods/mygo/releases/download/libghostty-vt-"+commit[:12], "the URL of the release hosting the libraries")
 	themes := flag.Bool("themes", false, "only write the themes")
 	flag.Parse()
 	if *themes {
@@ -75,7 +75,9 @@ func main() {
 		}
 		defer os.RemoveAll(prefix)
 		log.Printf("building %s/%s", t.goos, t.goarch)
-		run(*src, "zig", "build", "-Demit-lib-vt", "-Dtarget="+t.zig, "-Doptimize=ReleaseFast", "-Dstrip=true", "--prefix", prefix)
+		// No xcframework: the shared library is all apps load, and making
+		// one takes xcodebuild, which the Command Line Tools lack.
+		run(*src, "zig", "build", "-Demit-lib-vt", "-Demit-xcframework=false", "-Dtarget="+t.zig, "-Doptimize=fast", "-Dstrip=true", "--prefix", prefix)
 		ext := filepath.Ext(t.name)
 		asset := fmt.Sprintf("libghostty-vt-%s-%s%s", t.goos, t.goarch, ext)
 		built := filepath.Join(prefix, t.built)
