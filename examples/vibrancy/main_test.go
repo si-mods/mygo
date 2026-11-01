@@ -27,6 +27,14 @@ func TestVibrancy(t *testing.T) {
 	if a.chosen != "mica" || !tt.HasText("win.SetVibrancy(mygo.VibrancyMica)") {
 		t.Errorf("chose %q, texts %q", a.chosen, tt.Texts())
 	}
+	// The system's glass selects the item where it shows, its fallback
+	// elsewhere, as here.
+	if err := tt.Click("Select with the system's Liquid Glass (macOS 26)"); err != nil {
+		t.Fatal(err)
+	}
+	if mica, ok := tt.Find("Mica"); !a.systemGlass || !ok || alpha(int(mica.X)-20, int(mica.Y+mica.H/2)) != 255 {
+		t.Errorf("the item chosen shows no fallback for the system's glass")
+	}
 	if err := tt.Click("Hide Sidebar"); err != nil {
 		t.Fatal(err)
 	}

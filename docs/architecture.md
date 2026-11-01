@@ -3315,6 +3315,29 @@ either.
     WebView2's (`Chrome_WidgetWin_1`), which
     `GetAutomationProviderForWindow` does not map to it, so UI Automation
     finds them there (seen with a runtime of October 2026).
+- **The system's glass** (`ui/systemglass.go`, `internal/darwin/glass_view.go`).
+  `ui.SystemGlass` is a `Material` whose `PaintMaterial` asks the host
+  whether its window shows the system's Liquid Glass
+  (`platform.GlassSurface`, macOS's surface from macOS 26): painting into
+  the window's scene, outside a `Draw` callback, it paints an `OpHole` over
+  the box and notes a `platform.GlassPlacement` (the transformed box's
+  bounds on whole pixels, the painter's clip, the first radius scaled by
+  the transform, style, tint and opacity, mapped to the window's DIPs as
+  zoom asks) in `engine.glassPlaces`, which `paint` empties; elsewhere, as
+  in a `Tester`, into a layer's or canvas's scene, it paints `Fallback`.
+  After presenting a frame painted whole, the engine sends the list
+  through `sendGlass` unless it is the last one sent; the function is set
+  by `PaintMaterial`, so that apps painting none do not link the
+  surface's side (Bind's reflection keeps exported methods of the
+  backends, as `PlaceGlass`, in apps that call it). Frames that only
+  repaint parts send nothing new, as they move nothing. macOS keeps an
+  `NSGlassEffectView` per pane in a flipped `MyGoClipView` (masking to its
+  bounds only when the content clips the pane), each over the last made,
+  the first over the window's material: under the web views' clip views,
+  which `stackWebViews` keeps right under the surface. The i-th placement
+  reuses the i-th pane, which changes only what changed; panes past the
+  list hide, and go with the surface. A frame with a hole presents with
+  Core Animation's transaction, so the panes move with it.
 - **Context menus** (`ui/menu.go`) open in two frames. A right-click or the
   menu key marks the element, from the states of the last frame, and the
   next frame runs its `ContextMenu` function to collect a `platform.Menu`;

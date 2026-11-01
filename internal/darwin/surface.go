@@ -182,6 +182,9 @@ type surface struct {
 	// placed are where the content shows the window's web views, under
 	// it (webview.go).
 	placed []platform.WebViewPlacement
+	// glass are the panes of the system's glass the content shows, or
+	// showed, under it (glass_view.go).
+	glass []glassView
 }
 
 func (w *window) createSurface(content NSRect) {
@@ -216,6 +219,7 @@ func (s *surface) destroy() {
 		s.link = 0
 	}
 	s.destroyAccess()
+	s.destroyGlass()
 	send(s.view, "removeTrackingArea:", uintptr(s.tracking))
 	release(s.tracking)
 	delete(s.w.b.bySurface, s.view)

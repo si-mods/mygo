@@ -34,6 +34,12 @@ ui.Box(c).Fill().Children(func() {
 })
 ```
 
+Over the window's material (`Vibrancy`), which the content leaves
+transparent, the shader glass has nothing to refract. `ui.SystemGlass`
+shows the system's own glass there instead, AppKit's `NSGlassEffectView`
+on macOS 26 and later, with `glass.Glass{}` as its `Fallback` elsewhere
+([Windows](../ui/windows.md#the-systems-glass-in-an-element)).
+
 ## Styles
 
 - **`glass.Regular`**, the default, frosts what shows through and

@@ -80,6 +80,8 @@ type app struct {
 	chosen     string // the Vibrancy chosen in the sidebar
 	collapsed  bool   // the sidebar is hidden
 	seeThrough bool   // the material shows behind the pane too
+	// systemGlass selects the item chosen with the system's Liquid Glass.
+	systemGlass bool
 }
 
 func (a *app) find() material {
@@ -145,7 +147,10 @@ func (a *app) sidebar(c *ui.Context, vibrant bool) {
 		for _, s := range sections {
 			ui.SidebarSection(c, s.title, nil, func() {
 				for _, m := range s.items {
-					ui.SidebarItem(c, string(m.value), s.icon, m.label).Tooltip(m.about)
+					item := ui.SidebarItem(c, string(m.value), s.icon, m.label).Tooltip(m.about)
+					if a.systemGlass && string(m.value) == a.chosen {
+						item.Material(selectionGlass(c)).TextColor(c.Theme().Text)
+					}
 				}
 			})
 		}
@@ -180,6 +185,7 @@ func (a *app) pane(c *ui.Context, vibrant bool, titleLeft float32) {
 					Padding(12, 14).Radius(8).Background(t.Surface).Selectable()
 				ui.Text(c, "A material shows wherever the view draws no background: the sidebar has none, this pane has one.")
 				ui.Checkbox(c, &a.seeThrough, "Show the material behind this pane too").Disabled(!vibrant)
+				ui.Checkbox(c, &a.systemGlass, "Select with the system's Liquid Glass (macOS 26)")
 				note := "Windows 11 shows the closest of its backdrops: Acrylic for transient UI, Mica otherwise. Linux has no materials."
 				if !vibrant {
 					note = "This window shows no material here, so the sidebar draws a background of its own: " +
@@ -189,6 +195,26 @@ func (a *app) pane(c *ui.Context, vibrant bool, titleLeft float32) {
 			})
 		})
 	})
+}
+
+// selectionGlass is the system's Liquid Glass of the item chosen in the
+// sidebar, as AppKit's apps draw it over the window's material: untinted
+// in dark mode, darkened a little in light mode. Where it cannot show, the
+// sidebar's own selection color paints instead.
+func selectionGlass(c *ui.Context) ui.SystemGlass {
+	t := c.Theme()
+	g := ui.SystemGlass{Fallback: fill{t.SurfacePressed}}
+	if !t.Dark {
+		g.Tint = ui.RGBA(29, 29, 29, 0.25)
+	}
+	return g
+}
+
+// fill is a material of one color.
+type fill struct{ c ui.Color }
+
+func (f fill) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
+	p.Fill(box, f.c, radii[0])
 }
 
 func b2f(b bool) float32 {

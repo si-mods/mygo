@@ -1353,3 +1353,60 @@ func TestDismissPageMenu() {
 		send(openContextMenu, "cancelTracking")
 	}
 }
+
+// TestGlassPane is a pane of the system's glass a window of native UI
+// shows or showed (ui.SystemGlass): its box in DIPs from the top-left
+// corner of the content view, its corners, style, tint's alpha and
+// opacity, whether it shows, and whether it lies under the surface and
+// over the window's material.
+type TestGlassPane struct {
+	Class               string
+	Frame               platform.RectF
+	Radius              float64
+	Style               int
+	TintAlpha, Opacity  float64
+	Shown, UnderSurface bool
+}
+
+// TestSystemGlass returns the panes of the system's glass of a window.
+func TestSystemGlass(handle uintptr) []TestGlassPane {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.surface == nil {
+		return nil
+	}
+	var out []TestGlassPane
+	withPool(func() {
+		s := w.surface
+		subviews := arrayItems(send(w.view, "subviews"))
+		index := func(v id) int {
+			for i, sv := range subviews {
+				if sv == v {
+					return i
+				}
+			}
+			return -1
+		}
+		height := msgRect(w.view, sel("bounds")).Size.Height
+		for _, v := range s.glass {
+			r := msgConvertRectView(v.glass, sel("convertRect:toView:"), msgRect(v.glass, sel("bounds")), w.view)
+			p := TestGlassPane{
+				Class:   goString(send(v.glass, "className")),
+				Frame:   platform.RectF{X: r.Origin.X, Y: height - r.Origin.Y - r.Size.Height, W: r.Size.Width, H: r.Size.Height},
+				Radius:  msgFloat(v.glass, sel("cornerRadius")),
+				Style:   sendInt(v.glass, "style"),
+				Opacity: msgFloat(v.clip, sel("alphaValue")),
+				Shown:   !sendBool(v.clip, "isHidden"),
+			}
+			if tint := send(v.glass, "tintColor"); tint != 0 {
+				p.TintAlpha = msgFloat(tint, sel("alphaComponent"))
+			}
+			at := index(v.clip)
+			p.UnderSurface = at >= 0 && at < index(s.view) && (w.effect == 0 || index(w.effect) < at)
+			out = append(out, p)
+		}
+	})
+	return out
+}
+
+// TestSupportsGlass reports whether AppKit has NSGlassEffectView.
+func TestSupportsGlass() bool { return hasClass("NSGlassEffectView") }

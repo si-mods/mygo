@@ -97,7 +97,9 @@ ui.Column(c).Padding(18).Gap(12).Radius(10).
   paints, in place of a background, as the [glass
   plugin](../plugins/glass.md)'s Liquid Glass, which what is under it shows
   through, frosted and bent along its edges, its scroll edges and its
-  backdrop blur, which may fade along a gradient.
+  backdrop blur, which may fade along a gradient. `ui.SystemGlass` shows
+  the system's own Liquid Glass on macOS 26 and later, over the window's
+  material ([Windows](windows.md#the-systems-glass-in-an-element)).
 - **Pointer.** `Cursor` takes the shapes of the platforms: `CursorPointer`,
   `CursorText`, `CursorMove`, `CursorGrab` and `CursorGrabbing`, the
   resize cursors (both ways, toward one side as `CursorResizeE`, and of
