@@ -90,6 +90,12 @@ func (ed *editor) paint(p *ui.Painter, r ui.Rect) {
 	ed.frameNow = p.Now()
 	ed.r = r
 	ed.layout(r.W, r.H, p.Scale())
+	if ed.viewH != ed.builtViewH && !ed.o.fitContent {
+		// Resized: what read ViewportHeight as the view was built reads
+		// it again.
+		ed.builtViewH = ed.viewH
+		ed.services.Invalidate()
+	}
 	more := false
 	if !v.measureWraps(ed.anchorLine, 4*time.Millisecond) {
 		more = true
@@ -427,6 +433,7 @@ func (ed *editor) paintLine(p *ui.Painter, r ui.Rect, f *frame, line int, g line
 		}
 		v.paintRow(p, l, row, ox, y, &f.colors, nil)
 		ed.paintWhitespace(p, f, l, row, ox, y)
+		ed.paintMarked(p, f, l, row, ox, y)
 		// Diagnostics under the text.
 		for _, d := range ed.diags {
 			if d.End < l.start || d.Start > l.start+len(l.text) {
@@ -522,6 +529,29 @@ func (ed *editor) fillRange(p *ui.Painter, f *frame, l *lineLayout, row *rowLayo
 	f.rects = mergeRects(ed.view.rangeRects(l, row, a, b, f.rects[:0]))
 	for _, rc := range f.rects {
 		p.Fill(ui.Rect{X: ox + rc.X, Y: y, W: rc.W, H: ed.view.lineHeight}, c, radius)
+	}
+}
+
+// paintMarked rules a line under what an input method composes in a row, as
+// the app's text inputs underline theirs until they are committed.
+func (ed *editor) paintMarked(p *ui.Painter, f *frame, l *lineLayout, row *rowLayout, ox, y float32) {
+	if !ed.markedActive {
+		return
+	}
+	for _, m := range ed.marked {
+		if m.End <= l.start || m.Start >= l.start+len(l.text) {
+			continue
+		}
+		a, b := max(m.Start-l.start, 0), min(m.End-l.start, len(l.text))
+		ed.ruleRange(p, f, l, row, ox, y, l.toDisp(a, false), l.toDisp(b, true), ed.theme.Text)
+	}
+}
+
+// ruleRange rules a line under displayed bytes a to b of a row.
+func (ed *editor) ruleRange(p *ui.Painter, f *frame, l *lineLayout, row *rowLayout, ox, y float32, a, b int, c ui.Color) {
+	f.rects = mergeRects(ed.view.rangeRects(l, row, a, b, f.rects[:0]))
+	for _, rc := range f.rects {
+		p.Fill(ui.Rect{X: ox + rc.X, Y: y + ed.view.lineHeight - 2, W: rc.W, H: 1}, c, 0)
 	}
 }
 
@@ -786,9 +816,10 @@ func (ed *editor) paintScrollbars(p *ui.Painter, r ui.Rect, f *frame) {
 	ct := ed.theme
 	vertical, horizontal := ed.scrollbars()
 	// The thumbs and the carets' marks show while the pointer is over the
-	// editor, or drags a thumb, as a scroll container's do; the marks of
-	// changes, matches and diagnostics always.
-	shown := ed.pointerIn || ed.scrollbar.active
+	// editor, or drags a thumb, as a scroll container's do, or always
+	// when kept (KeepScrollbars), looking the same; the marks of changes,
+	// matches and diagnostics always.
+	shown := ed.pointerIn || ed.scrollbar.active || ed.o.keepScrollbars
 	if vertical {
 		x := r.X + r.W - scrollbarWidth
 		span := float32(ed.scrollMax()) + ed.viewH

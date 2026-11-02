@@ -1837,7 +1837,15 @@ backend, which:
   else through `WindowHandler.MenuItemClicked` for a window's menu, or
   `AppHandler.MenuItemClicked` for menus without one; the core toggles
   checkbox/radio state, performs window and view roles and calls `Click`
-  with the menu's window, even while a submenu has focus instead.
+  with the menu's window, even while a submenu has focus instead,
+- enables the edit roles' items of native UI as the content answers a
+  `SurfaceCommandEnabled` (package ui's `commandEnabled`, which follows
+  `editEvent`): on macOS the menus holding them validate their items
+  (`autoenablesItems`), the surface answering `validateMenuItem:` and the
+  menu target keeping the app's state, which a disabled role's item
+  targets; Windows and Linux ask as a menu opens (`WM_INITMENUPOPUP`, a
+  submenu's `map`, a popup before it shows), and again before a role's
+  shortcut runs.
 
 Item icons (`MenuItem.Icon`, made by `NewMenuIcon`) travel as a
 `*platform.MenuIcon`, which the core shares between the icons of the same
@@ -2248,6 +2256,11 @@ either.
   alone, as Enter choosing a candidate: on macOS `keyDown:` sends no
   `KeyPressed` while there is marked text, as GTK's input method filters
   such keys on Linux and IMM32 makes them `VK_PROCESSKEY` on Windows.
+  A composition the content does not take (`SurfaceEvent` returns false
+  for `TextComposition`) macOS gives up (`discardMarkedText`, once
+  `interpretKeyEvents:` returns), as the terminal leaves the dead key ´
+  of Option-E that it sent as Alt, so that the next key is not composed
+  with it.
   Input methods name what text and compositions replace in the text
   around the caret (`Replace`, `From`, `To`): NSTextInputClient's
   replacement ranges, GtkIMContext's `delete-surrounding`, IMM32's
@@ -2363,7 +2376,11 @@ either.
   only what changed since the last frame (see below); commits the boxes to the elements'
   states with the hit list in paint order, the focus order and the labels;
   paints a `scene.Scene`; and presents it. Input between frames goes to the
-  states of the last frame's elements. An element's identity hashes its
+  states of the last frame's elements. A release that comes with moves no
+  pass read waits in the element's state (`releaseLater`) for the pass
+  that reads them, which applies it as it ends (`forgetInput`): the view
+  sees the element still pressed where the pointer let go, and released
+  in the pass after. An element's identity hashes its
   parent's with its position or `Key`, so focus, scroll offsets, editors and
   animations survive rebuilding. `Context` is stable for the window; `Element` values expire between build
   passes and validate their owner, slot and generation before accessing storage. `ListState` resolves
@@ -2515,9 +2532,11 @@ either.
   CPU renderer's sample points, mapped back from the pixel's center
   through the inverse. Nested
   transformed or rounded clips use cached masks, independent of content
-  moving within them; hard clips in the drawing's coordinates evaluate on
-  the GPU. Backdrop effects map local samples into the frame. With a GPU,
-  every frame draws there, including resting changes to transformed content.
+  moving within them, once they hold content that a transform does more
+  than move (`scene.Reshaped`); hard clips in the drawing's coordinates,
+  and clips around content only moved, evaluate on the GPU. Backdrop
+  effects map local samples into the frame. With a GPU, every frame draws
+  there, including resting changes to transformed content.
   Metal retains wide colors under transforms. See
   [Transforms](ui/transforms.md#rendering) for rendering details.
 - **Motion** (`ui/motion.go`): every animated value of an element
@@ -2626,16 +2645,21 @@ either.
   ignores), text, compositions and edit commands while it has the focus,
   unless a `Shortcut` around it claims the key, and the pointer pressed on
   it, moving over it or scrolling over it; once it takes a press, the
-  moves and the release come to it, as to a pressed element. Its
+  moves and the release come to it, as to a pressed element, and the
+  release comes as the window loses the focus or once a frame builds the
+  element no more (not built again, or built over by an element without
+  `HandleInput`, as when the press moved it into a split), so that the
+  next press starts anew. Its
   `TextCaret` turns on the input method at that caret, with no text around
   it; `InputMethod(false)` (`TextInputState.NoInputMethod`) keeps text on
   but input methods off, as winit's `set_ime_allowed(false)`: macOS skips
   `interpretKeyEvents:` and inserts the event's `characters`, Windows
   disassociates the IMM context and keeps `WM_CHAR`, and GTK takes the
   focus from the IM context and sends the keyval's character; browsers
-  cannot. `ui.Shape` lays out text without the cache of layouts, for widgets
-  that keep their glyphs, and `Painter.Glyphs` draws them where they
-  placed them.
+  cannot. A composition fn leaves (returns false for `InputCompose`), the
+  input method gives up on macOS. `ui.Shape` lays out text without the
+  cache of layouts, for widgets that keep their glyphs, and
+  `Painter.Glyphs` draws them where they placed them.
   A text input's `OnTextKey` gets the keys that type no text as they
   come too, after `HandleInput`, but first applies the input queued for
   the editor (`widgetTextInput.prepare`, as the platform's queries do),
@@ -2941,7 +2965,12 @@ either.
     lines aligned by spacer blocks; the unified view one editor of the
     new text, with blocks painting the deleted lines from a view of the
     old one. Unchanged runs collapse into hidden spans under separator
-    blocks.
+    blocks. The split view's editors scroll as it is drawn, the unified
+    view's as it is built; a frame whose layout or build moved the scroll
+    builds the view again (`rebuildIfMoved`, `DiffView`), as one laying
+    an editor out at another height does (`builtViewH`), so that what
+    read `ScrollY` or `ViewportHeight` before, as an app's minimap,
+    follows.
   - *Parts* (`parts.go`, `diffparts.go`). The bars and popups around the
     text (find, go to line, completions, hovers) and a diff's separators,
     actions on changes and gutter button are elements the editor places
@@ -4430,8 +4459,10 @@ profile).
 
 ## Testing
 
-Regenerate checked UI wrappers with `go generate ./ui`. Native library and
-shader generation commands are listed in [AGENTS.md](../AGENTS.md).
+Regenerate checked UI wrappers with `go generate ./ui`, then what
+`mygo migrate-ui` knows of their results (`internal/uimigrate/uiapi.go`,
+which `TestUIAPI` checks) with `go test ./internal/uimigrate -update`.
+Native library and shader generation commands are listed in [AGENTS.md](../AGENTS.md).
 
 | suite | command | covers |
 |---|---|---|
@@ -4825,6 +4856,7 @@ which npm allows only for packages that exist: the first release uses an
 | hidden title bar | AppKit's traffic lights over a full-size content view | GTK's title buttons in header bars over the page, per `gtk-decoration-layout`; none where the Wayland compositor decorates windows | caption buttons drawn in a layered child window, through DirectComposition over a material, light or dark per window (`SetWindowButtonsTheme`); snap layouts; a top edge that resizes |
 | progress bar | Dock tile content view (NSBoxes: NSProgressIndicator does not draw there), app-wide | Unity launcher API over D-Bus (`com.canonical.Unity.LauncherEntry`), app-wide | `ITaskbarList3`, per window |
 | file icons | `NSWorkspace iconForFile:` drawn into an sRGB `NSBitmapImageRep` at the size | GIO's `standard::icon`, or a desktop entry's `GAppInfo` icon, through `gtk_icon_theme_lookup_by_gicon` | `IShellItemImageFactory::GetImage` (`SIIGBF_ICONONLY`), a DIB with straight alpha |
+| icons of file types (`TypeIcon`) | `UTType typeWithFilenameExtension:` → `NSWorkspace iconForContentType:` (`iconForFileType:` before macOS 11), drawn as file icons | `g_content_type_guess` of a name with the extension → `g_content_type_get_icon`, through the icon theme | the image factory of a simple ID list (`SHSimpleIDListFromPath`), which needs no file, as file icons |
 | installed apps | `.app` bundles of the Applications folders, `NSFileManager displayNameAtPath:` and `NSBundle`, off the main thread; launched with `openURL:` | `g_app_info_get_all` filtered by `g_app_info_should_show`; launched with `g_app_info_launch` and GDK's launch context | `FOLDERID_AppsFolder` enumerated in an STA of its own; launched with `ShellExecute` of `shell:AppsFolder\<ID>` |
 | badge count | Dock tile label | Unity launcher API count | not shown |
 | skip taskbar | ignored | skip-taskbar hint | `ITaskbarList::DeleteTab` (the window style is untouched) |
