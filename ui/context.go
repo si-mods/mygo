@@ -476,6 +476,11 @@ func (c *context) DisableAnimations() { c.rt.instantFrame = c.rt.frame }
 // (DisableAnimations).
 func (rt *engine) instant() bool { return rt.instantFrame == rt.frame && rt.frame != 0 }
 
+// Instant reports whether this frame shows animated values at once
+// (DisableAnimations). Views read it to render a change settled in the same
+// frames where its animations are disabled.
+func (c *context) Instant() bool { return c.rt.instant() }
+
 // After asks for another frame after d, for something that changes with
 // time, such as a clock.
 func (c *context) After(d time.Duration) { c.rt.scheduleAt(c.now.Add(d)) }
@@ -626,6 +631,18 @@ type state struct {
 	releaseVX, releaseVY float32
 	releaseWX, releaseWY float32
 	pressPending         bool // the press began since the last build pass
+	// releaseLater is what the release of the press gives the element,
+	// kept when it came with moves no pass had read for the pass that
+	// reads them to apply as it ends (forgetInput): where the pointer let
+	// go, which the element sees as the pointer meanwhile (pointer),
+	// whether it ended a drag, and the clicks since, the release's own
+	// first (click).
+	releaseLater struct {
+		due, released       bool
+		x, y                float32
+		clicks, rightClicks int
+		clickMods           Modifiers
+	}
 	// dragRec is what Draggable keeps of the element from frame to frame.
 	dragRec *dragRec
 
@@ -640,8 +657,8 @@ type state struct {
 	barWidth float32
 	// barsShown reports whether the last frame painted the element's
 	// scroll bars: they show only while it is hovered or a bar is
-	// dragged.
-	barsShown bool
+	// dragged, unless it keeps them (KeepScrollbars).
+	barsShown, hideScrollbars bool
 	// track is the ScrollState of the last frame's element, which events
 	// that scroll it update (scrollTo).
 	track *ScrollState

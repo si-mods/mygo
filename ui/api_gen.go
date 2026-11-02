@@ -325,6 +325,17 @@ func (_handle *Context) DisableAnimations() {
 	_ctx.DisableAnimations()
 }
 
+// Instant reports whether this frame shows animated values at once
+// (DisableAnimations). Views read it to render a change settled in the same
+// frames where its animations are disabled.
+func (_handle *Context) Instant() bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.Instant()
+}
+
 // Locale returns the language the app shows (mygo.App.Locale), a BCP 47
 // tag such as "en" or "zh-Hans", for what the view says in it. Text is in
 // it unless an element says otherwise (Element.Lang). A frame follows its
@@ -3204,6 +3215,21 @@ func (_handle Element) Cache() Element {
 	return wrapElement(_node.Cache())
 }
 
+// CaretWidth sets this input's painted caret width in DIPs for this build.
+// It defaults to one DIP. Positive widths are rounded to device pixels,
+// at least one pixel wide; zero and negative widths hide the caret. It does
+// not change text layout, input-method candidate bounds or caret blinking.
+// Other elements are unaffected.
+func (_handle Element) CaretWidth(width float32) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.CaretWidth(width))
+}
+
 // Center centers the children along and across the main axis.
 func (_handle Element) Center() Element {
 	_node := _handle.node()
@@ -3602,6 +3628,18 @@ func (_handle Element) Dividers(width float32, c Color) Element {
 	return wrapElement(_node.Dividers(width, c))
 }
 
+// DottedUnderline underlines text with a line of dots, as links mark
+// hover.
+func (_handle Element) DottedUnderline() Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.DottedUnderline())
+}
+
 // DoubleClicked reports a double click on the element.
 func (_handle Element) DoubleClicked() bool {
 	_node := _handle.node()
@@ -3743,7 +3781,9 @@ func (_handle Element) Draggable(offset *Point, o DraggableOptions) Element {
 }
 
 // Dragged reports how far the pointer moved in the element's local axes
-// since the last frame while pressing it.
+// since the last frame while pressing it. The moves just before the
+// pointer let go come while the element is still pressed, and the press
+// ends in the build after.
 func (_handle Element) Dragged() (float32, float32, bool) {
 	_node := _handle.node()
 	if _node == nil {
@@ -4511,6 +4551,23 @@ func (_handle Element) KeepFocus() Element {
 	return wrapElement(_node.KeepFocus())
 }
 
+// KeepScrollbars keeps this scroll container's scroll bars showing while its
+// content overflows it, with the pointer over it or not, rather than only
+// while it is hovered or a bar is dragged: a view whose place in its content
+// matters, as a long diff filling a window, shows how far down it is. The
+// bars look and take presses as they do on hover; Scrollbars(false) hides
+// them still. It applies where Scrollbars does (a code editor's State has
+// KeepScrollbars), and is not inherited.
+func (_handle Element) KeepScrollbars(keep bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.KeepScrollbars(keep))
+}
+
 // Keyframes plays a sequence, holding its last value when done. It starts
 // on the first call, with the first frame's value. Keep the element and
 // key stable, and change Run when changing the sequence. Only active
@@ -5113,9 +5170,23 @@ func (_handle Element) Placeholder(s string) Element {
 	return wrapElement(_node.Placeholder(s))
 }
 
+// PlaceholderColor sets the color of this input's placeholder for this build.
+// When unset it uses the theme's TextMuted. It does not change entered text,
+// other inputs or the theme. A transparent color hides the placeholder.
+func (_handle Element) PlaceholderColor(color Color) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.PlaceholderColor(color))
+}
+
 // PointerPosition returns the pointer's position relative to the
 // element's box and whether it is over the element. Elements asking for it
-// get a frame whenever the pointer moves over them.
+// get a frame whenever the pointer moves over them. The build that reads
+// the last moves of a press on the element sees where the pointer let go.
 func (_handle Element) PointerPosition() (float32, float32, bool) {
 	_node := _handle.node()
 	if _node == nil {
@@ -5549,6 +5620,22 @@ func (_handle Element) ScrollbarInsets(v ...float32) Element {
 	_ctx := _node.c
 	_ = _ctx
 	return wrapElement(_node.ScrollbarInsets(v...))
+}
+
+// Scrollbars controls the overlay indicators and their pointer hit targets on
+// this scroll container. They show on hover by default. With false, scrolling
+// by wheel, TrackScroll, keyboard focus and accessibility remains available.
+// It applies to Scroll, ScrollHorizontal, ScrollBoth, List and Table, not the
+// internal indicators of custom controls such as a code editor (whose State
+// has NoScrollbars), and is not inherited.
+func (_handle Element) Scrollbars(visible bool) Element {
+	_node := _handle.node()
+	if _node == nil {
+		return Element{}
+	}
+	_ctx := _node.c
+	_ = _ctx
+	return wrapElement(_node.Scrollbars(visible))
 }
 
 // Selectable lets the user select and copy text by dragging, double-clicking

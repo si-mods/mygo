@@ -25,25 +25,48 @@ import (
 func TestPerformMenuItem(path ...string) error {
 	var err error
 	withPool(func() {
-		menu := send(theBackend.app, "mainMenu")
-		for i, title := range path {
-			if menu == 0 {
-				err = fmt.Errorf("mygo: menu %q has no submenu", path[i-1])
-				return
-			}
-			index := sendInt(menu, "indexOfItemWithTitle:", uintptr(nsString(title)))
-			if index < 0 {
-				err = fmt.Errorf("mygo: no menu item %q", title)
-				return
-			}
-			if i == len(path)-1 {
-				send(menu, "performActionForItemAtIndex:", uintptr(index))
-				return
-			}
-			menu = send(send(menu, "itemAtIndex:", uintptr(index)), "submenu")
+		var menu id
+		var index int
+		if menu, index, err = menuItemAt(path); err == nil {
+			send(menu, "performActionForItemAtIndex:", uintptr(index))
 		}
 	})
 	return err
+}
+
+// TestMenuItemEnabled reports whether an item of the application menu,
+// found as TestPerformMenuItem finds it, is enabled once its menu
+// validates its items, as before it opens.
+func TestMenuItemEnabled(path ...string) (enabled bool, err error) {
+	withPool(func() {
+		var menu id
+		var index int
+		if menu, index, err = menuItemAt(path); err == nil {
+			send(menu, "update")
+			enabled = sendBool(send(menu, "itemAtIndex:", uintptr(index)), "isEnabled")
+		}
+	})
+	return enabled, err
+}
+
+// menuItemAt finds an item of the application menu by the titles along
+// its path, and returns its menu and its index there.
+func menuItemAt(path []string) (menu id, index int, err error) {
+	menu = send(theBackend.app, "mainMenu")
+	for i, title := range path {
+		if menu == 0 {
+			return 0, 0, fmt.Errorf("mygo: menu %q has no submenu", path[i-1])
+		}
+		index = sendInt(menu, "indexOfItemWithTitle:", uintptr(nsString(title)))
+		if index < 0 {
+			return 0, 0, fmt.Errorf("mygo: no menu item %q", title)
+		}
+		if i == len(path)-1 {
+			return menu, index, nil
+		}
+		menu = send(send(menu, "itemAtIndex:", uintptr(index)), "submenu")
+	}
+	return 0, 0, fmt.Errorf("mygo: no menu item")
 }
 
 // TestPerformKeyEquivalent sends a key press with the Command key (and
@@ -274,6 +297,55 @@ func TestControlClick(handle uintptr, x, y float64) {
 			send(win, "sendEvent:", uintptr(ev))
 		}
 	})
+}
+
+// TestSecondaryClickAsPrimary clicks (x, y), in points from the top-left
+// corner of a window's content, with the secondary button as data loss
+// prevention agents post its events again: as the primary button's press
+// and release, which keep the secondary button's number.
+func TestSecondaryClickAsPrimary(handle uintptr, x, y float64) (ok bool) {
+	w := theBackend.byNSWindow[id(handle)]
+	if w == nil || w.surface == nil {
+		return false
+	}
+	testSideOnce.Do(func() {
+		purego.RegisterLibFunc(&cgEventSetIntegerValueField, libCG, "CGEventSetIntegerValueField")
+	})
+	testPinchOnce.Do(func() {
+		purego.RegisterLibFunc(&cgEventSetType, libCG, "CGEventSetType")
+		purego.RegisterLibFunc(&cgEventSetDoubleValueField, libCG, "CGEventSetDoubleValueField")
+		purego.RegisterLibFunc(&cgEventSetLocation, libCG, "CGEventSetLocation")
+	})
+	withPool(func() {
+		content := msgRect(send(w.win, "contentView"), sel("frame"))
+		want := NSPoint{x, content.Size.Height - y}
+		near := func(p NSPoint) bool { return math.Abs(p.X-want.X) < 0.5 && math.Abs(p.Y-want.Y) < 0.5 }
+		number := sendInt(w.win, "windowNumber")
+		for _, typ := range []uint{1, 2} { // NSEventTypeLeftMouseDown, LeftMouseUp
+			ev := msgMouseEvent(class("NSEvent"), sel("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"),
+				typ, want, 0, 0, number, 0, 0, 1, 1)
+			cg := uintptr(send(ev, "CGEvent"))
+			cgEventSetIntegerValueField(cg, 3, 1) // kCGMouseEventButtonNumber: the secondary button
+			ev = send(class("NSEvent"), "eventWithCGEvent:", cg)
+			// The way through CGEvent moves the point by the window's origin
+			// once more: move it back (CoreGraphics' y goes down).
+			if got := msgPoint(ev, sel("locationInWindow")); ev != 0 && !near(got) {
+				at := cgEventGetLocation(cg)
+				cgEventSetLocation(cg, NSPoint{at.X - (got.X - want.X), at.Y + (got.Y - want.Y)})
+				ev = send(class("NSEvent"), "eventWithCGEvent:", cg)
+			}
+			if ev == 0 || sendInt(ev, "type") != int(typ) || sendInt(ev, "buttonNumber") != 1 || !near(msgPoint(ev, sel("locationInWindow"))) {
+				return
+			}
+			name := "mouseDown:"
+			if typ == 2 {
+				name = "mouseUp:"
+			}
+			send(w.surface.view, name, uintptr(ev))
+		}
+		ok = true
+	})
+	return ok
 }
 
 var (
