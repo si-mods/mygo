@@ -2933,3 +2933,39 @@ func TestDropFiles(t *testing.T) {
 		t.Errorf("dropping in bracketed paste pasted %q, want %q", got, want)
 	}
 }
+
+// TestDrawnMenu checks that a window drawing its menus (SetDrawMenus)
+// shows the terminal's context menu in the window, and that Paste reaches
+// the program.
+func TestDrawnMenu(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("some text"))
+	tt := ui.NewTester(func(c *ui.Context) {
+		c.SetDrawMenus(true)
+		View(c, term).Fill().AutoFocus()
+	}, 400, 200)
+	x, y := cellCenter(term, 1, 0)
+	tt.RightClickAt(x, y)
+	if tt.Menu() != nil {
+		t.Errorf("the system shows a menu: %q", tt.Menu())
+	}
+	if !tt.HasText("Copy") || !tt.HasText("Clear") {
+		t.Fatalf("no drawn menu: %q", tt.Texts())
+	}
+	tt.SetClipboard("drawn")
+	if err := tt.Click("Paste"); err != nil {
+		t.Fatal(err)
+	}
+	if got := conn.take(term); got != "drawn" {
+		t.Errorf("the drawn menu's Paste sent %q", got)
+	}
+	if tt.HasText("Clear") {
+		t.Error("the menu stays after a choice")
+	}
+}

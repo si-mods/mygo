@@ -41,10 +41,21 @@ import (
 //		m.EditItems()
 //	})
 //
-// PopoverMenu draws the same menu in the window, with the theme's look.
+// PopoverMenu draws the same menu in the window, with the theme's look,
+// and so does ContextMenu itself in a window that draws its menus
+// (Context.SetDrawMenus).
 func (e *node) ContextMenu(build func(m *Menu)) *node {
 	e.flags |= flagContextMenu
-	e.buildMenu(false, false, build)
+	rt := e.c.rt
+	// The drawn menus' code is reached through rt.drawer, which only
+	// SetDrawMenus and PopoverMenu register: apps that use neither don't
+	// link it.
+	drawer := rt.drawer
+	drawn := rt.drawMenus && drawer != nil
+	e.buildMenu(false, drawn, build)
+	if drawn {
+		drawer.draw(e, build)
+	}
 	return e
 }
 
@@ -92,8 +103,8 @@ func (e *node) buildMenu(button, drawn bool, build func(m *Menu)) {
 			mr.drawn = nil
 			break
 		}
-		if drawn {
-			rt.openDrawnMenu(e)
+		if drawn && rt.drawer != nil {
+			rt.drawer.open(e, mr.at())
 			break
 		}
 		run := &menuRun{collect: true}
@@ -302,6 +313,9 @@ type menuState struct {
 	// drawn is the menu drawn in the window that shows (PopoverMenu,
 	// PopoverMenuButton), nil while none does.
 	drawn *drawnMenu
+	// edit is the editing menu of a text input that the window draws, which
+	// opens in the next pass.
+	edit *shownMenu
 }
 
 // shownMenu is a context menu built for the element id. commands are the
@@ -315,6 +329,21 @@ type shownMenu struct {
 	x, y     float32
 	// text is the text the menu opened on, which takes its commands.
 	text uint64
+	// key and below are the menu's, as asked for, of a menu drawn that
+	// opens later (menuState.key, menuState.below).
+	key, below bool
+}
+
+// menuAt is where and how a menu drawn opens, as asked for.
+type menuAt struct {
+	x, y       float32
+	text       uint64
+	key, below bool
+}
+
+// at returns what the menu asked for now asks, for a drawn menu to keep.
+func (mr *menuState) at() menuAt {
+	return menuAt{x: mr.x, y: mr.y, text: mr.text, key: mr.key, below: mr.below}
 }
 
 // textMenu returns the element whose context menu opens on the text input
@@ -491,6 +520,48 @@ func (rt *engine) openMenu(id uint64, button bool, pm *platform.Menu, labels, co
 	mr.pending = &shownMenu{id: id, button: button, menu: pm, labels: labels, commands: commands, x: mr.x, y: mr.y, text: mr.text}
 }
 
+// drawEditMenu builds the editing menu of a text input that the window
+// draws, which no element's function builds: it opens, and shows, as an
+// overlay of the text input, once the view is built. Where the text input
+// is not in the view or its overlays, as one of a toast or of the
+// inspector, built after the view, the system shows the menu.
+func (rt *engine) drawEditMenu() {
+	mr := &rt.menu
+	if p := mr.edit; p != nil {
+		mr.edit = nil
+		if e := rt.menuElement(p.id); e != nil {
+			rt.openDrawnMenu(e, menuAt{x: p.x, y: p.y, text: p.text, key: p.key, below: p.below})
+			if mr.drawn != nil {
+				mr.drawn.pre = p
+			}
+		} else if len(p.menu.Items) > 0 {
+			if s := rt.states[p.id]; s != nil && s.rtl {
+				p.menu.RightToLeft = true
+			}
+			mr.pending = p
+		}
+	}
+	if d := mr.drawn; d != nil && d.pre != nil {
+		if e := rt.menuElement(d.id); e != nil {
+			rt.drawMenu(e, nil)
+		}
+	}
+}
+
+// menuElement returns the element id of the pass being built, in the view
+// or its overlays, or nil.
+func (rt *engine) menuElement(id uint64) *node {
+	for _, root := range []*node{rt.c.root, rt.c.overlay} {
+		if root == nil {
+			continue
+		}
+		if e := rt.elementsByID(root)[id]; e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
 // resolveMenu opens the menu asked for that no ContextMenu built, after a
 // pass of the view: a text input's, with the editing commands.
 func (rt *engine) resolveMenu() {
@@ -574,6 +645,18 @@ func (rt *engine) editMenu(s *state) {
 		}
 		pm.Items = append(pm.Items, it)
 		labels[i], names[i] = c.label, c.name
+	}
+	if rt.drawMenus && rt.drawer != nil && len(pm.Items) > 0 {
+		// The window draws it: the next pass builds it, as an overlay of the
+		// text (drawEditMenu), where the pointer or the key asked for it now.
+		mr := &rt.menu
+		mr.edit = &shownMenu{id: s.id, menu: pm, labels: labels, commands: names, text: s.id,
+			x: mr.x, y: mr.y, key: mr.key, below: mr.below}
+		rt.consumed = true
+		// The last pass allowed ends the frame: ask for one that builds it.
+		// requestFrame does nothing while a frame runs.
+		rt.host.requestFrame()
+		return
 	}
 	rt.openMenu(s.id, false, pm, labels, names)
 }

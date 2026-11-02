@@ -131,3 +131,35 @@ lists only the system's menus.
 button](menu-button.md#drawn-in-the-window) so, below the button, and takes
 the same function: a row's right-click and its ⋯ button can share one
 menu, drawn alike.
+
+## Every menu drawn
+
+`c.SetDrawMenus(true)` makes the window draw all its context menus as
+`PopoverMenu` does, rather than the system showing them: those of
+`ContextMenu`, of text inputs and selectable text (Cut, Copy, Paste,
+...), and of the elements built on them, as the terminal plugin, Markdown
+and rich text. They open where the system's do, and a command chosen from
+the editing menu reaches the text as before. Off, the default, the system
+shows them.
+
+```go
+c.SetDrawMenus(runtime.GOOS != "darwin") // the system's menus on macOS only
+```
+
+A drawn menu stays in the window: it does not float over other windows or
+go past the window's edges. The menu of a web view's page, the menu bar and
+the tray's menu stay the system's.
+
+`Theme.Menu` styles drawn menus, those of `PopoverMenu` and
+`PopoverMenuButton` too. Parts left at zero keep MyGo's look:
+
+```go
+t.Menu = &ui.MenuStyle{
+	Panel: func(panel ui.Element, level int) {
+		panel.Radius(12).Padding(5).Background(glass)
+	},
+	RowHeight: 24, RowRadius: 7, RowPadding: 10,
+	Highlight: accent, HighlightText: ui.RGB(255, 255, 255),
+	TextSize: 13,
+}
+```

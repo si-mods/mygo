@@ -54,6 +54,35 @@ type Theme struct {
 	// FontSize is the size of text, Font its family ("" is the system's).
 	FontSize float32
 	Font     string
+	// Menu styles the menus MyGo draws in the window, those of PopoverMenu,
+	// PopoverMenuButton and of every context menu once the window draws
+	// them (Context.SetDrawMenus). nil, and any part of it left at zero,
+	// keeps MyGo's look. A pointer, so that a Theme stays comparable with
+	// ==: a MenuStyle holds a function.
+	Menu *MenuStyle
+}
+
+// MenuStyle styles the menus MyGo draws in the window (Theme.Menu). An app
+// sets the parts it wants, and MyGo keeps its own look for those left at
+// zero. It changes how a menu looks, not how it works.
+type MenuStyle struct {
+	// Panel styles each menu's panel after MyGo set its layout, where it
+	// attaches and its margin: its face, border, radius, shadow and
+	// padding, and what it changes of the layout stays. level is 0 for the menu and 1,
+	// 2 for the submenus inside it. nil keeps MyGo's.
+	Panel func(panel Element, level int)
+	// RowHeight is the least height of an item's row, RowRadius the radius
+	// of its highlight and RowPadding the room before and after its
+	// content; 0 keeps MyGo's.
+	RowHeight, RowRadius, RowPadding float32
+	// Highlight colors the row of the item the pointer or the keys are
+	// on, HighlightText its text; zero keeps the accent and its text.
+	Highlight, HighlightText Color
+	// Separator colors the line between groups of items; zero keeps the
+	// theme's Border.
+	Separator Color
+	// TextSize is the size of an item's text; 0 keeps the theme's.
+	TextSize float32
 }
 
 // Space returns n units of the theme's Spacing, to size elements of your
