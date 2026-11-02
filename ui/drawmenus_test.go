@@ -265,3 +265,107 @@ func TestMenuStyleReachesPanelAndRows(t *testing.T) {
 		t.Error("no separator line has the Separator color")
 	}
 }
+
+// focusedText returns the state of the text input the Tester focused.
+func focusedText(t *testing.T, tt *Tester) *state {
+	t.Helper()
+	s := tt.rt.states[tt.rt.focused]
+	if s == nil || s.editor == nil {
+		t.Fatal("no text input has the focus")
+	}
+	return s
+}
+
+// TestDrawMenusEditMenuAsksForAFrame checks that the editing menu asked
+// for in the last pass allowed, where the frame ends with it, still has a
+// frame requested, which builds it. A frame runs here (inFrame), where
+// requestFrame does nothing.
+func TestDrawMenusEditMenuAsksForAFrame(t *testing.T) {
+	a := &drawApp{draw: true, value: "hello"}
+	tt := coreNewTester(a.view, 400, 300)
+	tt.Click("Name")
+	s := focusedText(t, tt)
+	tt.h.requested.Store(false)
+	tt.rt.inFrame, tt.rt.pass = true, 2
+	tt.rt.editMenu(s)
+	tt.rt.inFrame = false
+	if tt.rt.menu.edit == nil {
+		t.Fatal("the editing menu was not kept for a pass")
+	}
+	if !tt.h.requested.Load() {
+		t.Fatal("no frame was requested: the menu waits for an unrelated event")
+	}
+	tt.settle()
+	if !tt.HasText("Select All") {
+		t.Errorf("the next frame drew no editing menu: %q", tt.Texts())
+	}
+}
+
+// TestDrawMenusEditMenuKeepsWhereAsked checks that a menu asked for again
+// before the editing menu opens neither moves nor retargets it.
+func TestDrawMenusEditMenuKeepsWhereAsked(t *testing.T) {
+	a := &drawApp{draw: true, value: "hello"}
+	tt := coreNewTester(a.view, 400, 300)
+	tt.Click("Name")
+	s := focusedText(t, tt)
+	rt := tt.rt
+	b := transformRect(s.world, Rect{s.x, s.y, s.w, s.h})
+	rt.menu.x, rt.menu.y, rt.menu.text, rt.menu.key = b.X+13, b.Y+7, s.id, false
+	rt.editMenu(s)
+	// Another menu is asked for before the pass that builds this one.
+	rt.menu.x, rt.menu.y, rt.menu.text, rt.menu.key, rt.menu.below = b.X+99, b.Y+50, 12345, true, true
+	tt.Frame()
+	d := rt.menu.drawn
+	if d == nil {
+		t.Fatal("no drawn menu")
+	}
+	if d.dx != 13 || d.dy != 7 || d.text != s.id || d.below {
+		t.Errorf("menu opened at (%v, %v) on text %d below %v, want (13, 7) on %d, not below", d.dx, d.dy, d.text, d.below, s.id)
+	}
+	if d.levels[0].hi != 0 {
+		t.Errorf("the keyboard's start applied: hi %d", d.levels[0].hi)
+	}
+}
+
+// TestDrawMenusEditMenuOfAnElementNotBuiltYet checks that the editing
+// menu of a text input that the view's tree does not hold when the menu
+// opens, as a toast's or the inspector's, built after the view, falls back
+// to the system's menu rather than vanishing. The element is simulated by
+// an id the tree lacks.
+func TestDrawMenusEditMenuOfAnElementNotBuiltYet(t *testing.T) {
+	a := &drawApp{draw: true, value: "hello"}
+	tt := coreNewTester(a.view, 400, 300)
+	tt.Click("Name")
+	s := focusedText(t, tt)
+	rt := tt.rt
+	rt.editMenu(s)
+	rt.menu.edit.id = 987654321 // not in the view or its overlays
+	tt.Frame()
+	if got := tt.Menu(); len(got) == 0 {
+		t.Fatal("no menu at all: the editing menu was dropped")
+	}
+	if tt.HasText("Select All") {
+		t.Error("a drawn menu shows for an element that is not built")
+	}
+}
+
+// TestMenuStylePanelRunsAfterTheLayout checks that Panel may change what
+// MyGo set for the menu's layout, its margin included.
+func TestMenuStylePanelRunsAfterTheLayout(t *testing.T) {
+	style := &MenuStyle{Panel: func(p Element, level int) { p.Margin(33) }}
+	a := &buttonMenuApp{}
+	tt := coreNewTester(func(c *context) {
+		c.Theme().Menu = style
+		a.view(c)
+	}, 400, 300)
+	if err := tt.Click("Actions"); err != nil {
+		t.Fatal(err)
+	}
+	panel, _ := menuNodes(tt, "Open")
+	if panel == nil {
+		t.Fatal("no drawn menu")
+	}
+	if panel.margin != [4]float32{33, 33, 33, 33} {
+		t.Errorf("panel margin %v, want Panel's 33 on every side", panel.margin)
+	}
+}

@@ -127,7 +127,10 @@ type engine struct {
 	contentZoom float32
 	// drawMenus is set by Context.SetDrawMenus: the window draws its context
 	// menus itself.
-	drawMenus   bool
+	drawMenus bool
+	// drawer is the code of drawn menus, nil until SetDrawMenus or a
+	// PopoverMenu registers it (useDrawnMenus).
+	drawer      *menuDrawer
 	zoomChanged bool
 
 	// building counts the public constructors under way: input queued
@@ -608,8 +611,8 @@ func (rt *engine) runFrame() {
 		clear(rt.kept)
 		rt.c.reset(now, appW, h)
 		rt.view(&rt.c)
-		if rt.drawMenus || rt.menu.drawn != nil {
-			rt.drawEditMenu()
+		if d := rt.drawer; d != nil && (rt.menu.edit != nil || (rt.menu.drawn != nil && rt.menu.drawn.pre != nil)) {
+			d.edit()
 		}
 		if rt.closing {
 			// The view closed the window, as a close button does: the

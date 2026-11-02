@@ -44,6 +44,7 @@ import (
 // makes a window draw all its context menus so, and Theme.Menu styles them.
 func (e *node) PopoverMenu(build func(m *Menu)) *node {
 	e.flags |= flagContextMenu
+	e.c.rt.useDrawnMenus()
 	e.buildMenu(false, true, build)
 	e.c.rt.drawMenu(e, build)
 	return e
@@ -79,6 +80,7 @@ func (e *node) PopoverMenuButton(build func(m *Menu)) *node {
 	if e.role == RoleAuto || e.role == RoleButton {
 		e.role = RoleMenuButton
 	}
+	e.c.rt.useDrawnMenus()
 	e.buildMenu(true, true, build)
 	e.c.rt.drawMenu(e, build)
 	return e
@@ -102,6 +104,9 @@ func (c *context) SetDrawMenus(on bool) {
 		return
 	}
 	rt.drawMenus = on
+	if on {
+		rt.useDrawnMenus()
+	}
 	if !on {
 		rt.menu.edit = nil
 		if d := rt.menu.drawn; d != nil && d.pre != nil {
@@ -162,8 +167,33 @@ type menuLevel struct {
 	reveal  bool
 }
 
+// menuDrawer is the code of menus drawn in the window, which the engine
+// reaches through a registered value, so that an app that draws none
+// doesn't link it, as linkedDocuments does for documents.
+type menuDrawer struct {
+	// open opens the drawn menu of e, as asked for.
+	open func(e *node, at menuAt)
+	// draw builds the drawn menu of e while it shows.
+	draw func(e *node, build func(m *Menu))
+	// edit builds the editing menu of a text input that the window draws.
+	edit func()
+}
+
+// useDrawnMenus registers the drawn menus' code with the engine. Only
+// SetDrawMenus and the elements of drawn menus call it.
+func (rt *engine) useDrawnMenus() {
+	if rt.drawer != nil {
+		return
+	}
+	rt.drawer = &menuDrawer{
+		open: rt.openDrawnMenu,
+		draw: rt.drawMenu,
+		edit: rt.drawEditMenu,
+	}
+}
+
 // openDrawnMenu opens the drawn menu of e, at the point asked for.
-func (rt *engine) openDrawnMenu(e *node) {
+func (rt *engine) openDrawnMenu(e *node, at menuAt) {
 	mr := &rt.menu
 	if !e.hasState() {
 		return
@@ -172,10 +202,10 @@ func (rt *engine) openDrawnMenu(e *node) {
 	// visible part: one scrolled partly out of view would put it off the
 	// point by as much (#894).
 	b := e.Bounds()
-	d := &drawnMenu{id: e.id, below: mr.below, text: mr.text, opened: rt.frame, dx: mr.x - b.X, dy: mr.y - b.Y, focus: 0}
+	d := &drawnMenu{id: e.id, below: at.below, text: at.text, opened: rt.frame, dx: at.x - b.X, dy: at.y - b.Y, focus: 0}
 	d.pointer = [2]float32{rt.pointerX, rt.pointerY}
 	first := 0
-	if mr.key {
+	if at.key {
 		first = -1 // the keyboard opened it: it starts on the first item
 	}
 	d.levels = []menuLevel{{hi: first}}
@@ -290,9 +320,6 @@ func (md *menuDraw) panel(level int, items []*platform.MenuItem, anchor *node) (
 	panel.MinWidth(t.Space(45)).Padding(t.Space(1)).Radius(t.Radius+2).Background(t.Background).Border(1, t.Border)
 	panel.Shadow(0, 6, 20, 0, RGBA(0, 0, 0, 0.18))
 	style := t.menuStyle()
-	if style.Panel != nil {
-		style.Panel(wrapElement(panel), level)
-	}
 	switch {
 	case level == 0 && d.below:
 		// Below the menu button, or above it where the window has no room,
@@ -304,6 +331,9 @@ func (md *menuDraw) panel(level int, items []*platform.MenuItem, anchor *node) (
 		// After the item opening it, its first item lined up with it.
 		panel.AttachTo(anchor, AnchorTopEnd, AnchorTopStart).Margin(-t.Space(1)-1, 0, 0, 0)
 		panel.Label(anchor.label)
+	}
+	if style.Panel != nil {
+		style.Panel(wrapElement(panel), level)
 	}
 	if d.levels[level].hi < 0 {
 		d.levels[level].hi = 0

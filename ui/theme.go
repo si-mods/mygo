@@ -66,8 +66,9 @@ type Theme struct {
 // sets the parts it wants, and MyGo keeps its own look for those left at
 // zero. It changes how a menu looks, not how it works.
 type MenuStyle struct {
-	// Panel styles each menu's panel after MyGo set its layout: its face,
-	// border, radius, shadow and padding. level is 0 for the menu and 1,
+	// Panel styles each menu's panel after MyGo set its layout, where it
+	// attaches and its margin: its face, border, radius, shadow and
+	// padding, and what it changes of the layout stays. level is 0 for the menu and 1,
 	// 2 for the submenus inside it. nil keeps MyGo's.
 	Panel func(panel Element, level int)
 	// RowHeight is the least height of an item's row, RowRadius the radius
