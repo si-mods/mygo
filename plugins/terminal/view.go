@@ -159,6 +159,11 @@ type view struct {
 	cellW, cellH, baseline int
 	ox, oy                 int
 	cols, rows             int
+	// top is the grid row drawn at the element's top: 0, or the rows the
+	// grid holds above what the element shows, as when a terminal no view
+	// sized (Options.ResizeByConn) is taller than its view, whose bottom
+	// rows, where the cursor and programs' prompts are, stay in sight.
+	top int
 
 	colors    vt.Colors
 	contrast  float32 // Options.MinimumContrast, as of the last paint
@@ -1009,8 +1014,8 @@ func (v *view) cellAt(x, y float32) (col, row int) {
 		return 0, 0
 	}
 	col = int(math.Floor(float64((x*v.scale - float32(v.ox)) / float32(v.cellW))))
-	row = int(math.Floor(float64((y*v.scale - float32(v.oy)) / float32(v.cellH))))
-	return max(0, min(col, v.cols-1)), max(0, min(row, v.rows-1))
+	row = int(math.Floor(float64((y*v.scale-float32(v.oy))/float32(v.cellH)))) + v.top
+	return max(0, min(col, v.cols-1)), max(v.top, min(row, v.top+v.rows-1))
 }
 
 // pointerEvent reports the pointer to the program that takes the mouse, or

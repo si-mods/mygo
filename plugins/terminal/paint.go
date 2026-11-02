@@ -152,6 +152,7 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	full := rs.Dirty() == vt.Full || colors != v.colors || contrast != v.contrast
 	v.colors, v.contrast, v.cursor = colors, contrast, rs.Cursor()
 	cols, rows := rs.Size()
+	v.top = max(0, rows-v.rows)
 	if len(v.lines) != rows {
 		v.lines = append(v.lines[:0], make([]rowCache, rows)...)
 		full = true
@@ -491,6 +492,8 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	// The grid starts at a whole pixel of the display.
 	ox := (float32(math.Round(float64(r.X*s))) + float32(v.ox)) / s
 	oy := (float32(math.Round(float64(r.Y*s))) + float32(v.oy)) / s
+	// The grid's rows above v.top stay out of sight above the element.
+	oy -= float32(v.top) * ch
 	base := float32(v.baseline) / s
 	// A transparent terminal still draws a background a program set (OSC
 	// 11), as Ghostty shows it.
@@ -505,7 +508,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 		selection = color(v.colors.Foreground).Alpha(0.3)
 	}
 	v.drawImages(p, belowBackground, ox, oy)
-	for y := range v.lines {
+	for y := v.top; y < len(v.lines); y++ {
 		line := &v.lines[y]
 		ry := oy + float32(y)*ch
 		for _, b := range line.bgs {
@@ -517,7 +520,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 	}
 	match, matchText, selMatch, selMatchText := v.searchColors()
 	for _, m := range v.matches {
-		if m.y < len(v.lines) {
+		if m.y >= v.top && m.y < len(v.lines) {
 			c := match
 			if m.selected {
 				c = selMatch
@@ -531,7 +534,7 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 		p.Fill(cur, curColor, 0)
 	}
 	var spans []matchSpan
-	for y := range v.lines {
+	for y := v.top; y < len(v.lines); y++ {
 		line := &v.lines[y]
 		ry := oy + float32(y)*ch
 		text := func(over ui.Color) { v.drawText(p, line, ox, ry, cw, ch, base, over) }
@@ -644,7 +647,7 @@ func (v *view) extendPadding(p *ui.Painter, r ui.Rect, ox, oy, cw, ch float32) {
 		}
 		return x0, x1
 	}
-	for y := range v.lines {
+	for y := v.top; y < len(v.lines); y++ {
 		line := &v.lines[y]
 		if !extends(line) || len(line.bgs) == 0 {
 			continue
@@ -669,8 +672,8 @@ func (v *view) extendPadding(p *ui.Painter, r ui.Rect, ox, oy, cw, ch float32) {
 			p.Fill(ui.Rect{X: x0, Y: y0, W: x1 - x0, H: y1 - y0}, b.c, 0)
 		}
 	}
-	vertical(&v.lines[0], r.Y, oy)
-	vertical(&v.lines[len(v.lines)-1], oy+float32(len(v.lines))*ch, r.Y+r.H)
+	vertical(&v.lines[v.top], r.Y, oy)
+	vertical(&v.lines[len(v.lines)-1], oy+float32(len(v.lines)-v.top)*ch, r.Y+r.H)
 }
 
 // drawText draws the glyphs, drawn characters and lines of a row, in their
