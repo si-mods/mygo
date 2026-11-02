@@ -159,10 +159,10 @@ type view struct {
 	cellW, cellH, baseline int
 	ox, oy                 int
 	cols, rows             int
-	// top is the grid row drawn at the element's top: 0, or the rows the
-	// grid holds above what the element shows, as when a terminal no view
-	// sized (Options.ResizeByConn) is taller than its view, whose bottom
-	// rows, where the cursor and programs' prompts are, stay in sight.
+	// top is the grid row drawn at the element's top: the rows the grid
+	// holds above what the element shows, as when a terminal no view sized
+	// (Options.ResizeByConn) is taller than its view, leaving the cursor,
+	// and the rows a program draws under it, in sight.
 	top int
 
 	colors    vt.Colors

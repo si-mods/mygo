@@ -152,7 +152,13 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 	full := rs.Dirty() == vt.Full || colors != v.colors || contrast != v.contrast
 	v.colors, v.contrast, v.cursor = colors, contrast, rs.Cursor()
 	cols, rows := rs.Size()
+	// The rows the grid holds above what the view shows: its last ones,
+	// or where the cursor is, which the programs that draw near the top
+	// of a screen taller than the view keep in sight.
 	v.top = max(0, rows-v.rows)
+	if v.cursor.InView {
+		v.top = min(max(0, v.cursor.Y-v.rows+1), v.top)
+	}
 	if len(v.lines) != rows {
 		v.lines = append(v.lines[:0], make([]rowCache, rows)...)
 		full = true
