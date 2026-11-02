@@ -125,6 +125,9 @@ type engine struct {
 	// contentZoom is the content's zoom (Context.SetZoom), 0 for none;
 	// zoomChanged tells that it changed since the frame's size was read.
 	contentZoom float32
+	// drawMenus is set by Context.SetDrawMenus: the window draws its context
+	// menus itself.
+	drawMenus   bool
 	zoomChanged bool
 
 	// building counts the public constructors under way: input queued
@@ -605,6 +608,9 @@ func (rt *engine) runFrame() {
 		clear(rt.kept)
 		rt.c.reset(now, appW, h)
 		rt.view(&rt.c)
+		if rt.drawMenus || rt.menu.drawn != nil {
+			rt.drawEditMenu()
+		}
 		if rt.closing {
 			// The view closed the window, as a close button does: the
 			// window is gone at once, and the frame ends with the view.

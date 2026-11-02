@@ -325,6 +325,16 @@ func (_handle *Context) DisableAnimations() {
 	_ctx.DisableAnimations()
 }
 
+// DrawMenus reports whether the window draws its context menus
+// (SetDrawMenus).
+func (_handle *Context) DrawMenus() bool {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return false
+	}
+	return _ctx.DrawMenus()
+}
+
 // Instant reports whether this frame shows animated values at once
 // (DisableAnimations). Views read it to render a change settled in the same
 // frames where its animations are disabled.
@@ -459,6 +469,26 @@ func (_handle *Context) Router() *Router {
 		return nil
 	}
 	return _ctx.Router()
+}
+
+// SetDrawMenus makes the window draw its context menus, those of
+// ContextMenu and of MyGo's own elements (text editing, selectable text,
+// the terminal, Markdown and rich text), as PopoverMenu draws one, in the
+// window with the theme's look (Theme.Menu), rather than the system showing
+// them. They open where the system's do, at the pointer for the secondary
+// button and below the focused element for the menu key or Shift+F10, and
+// have the keys of PopoverMenu's. A menu drawn cannot go past the window's
+// edges and does not float over other windows. The menu of a web view's page
+// stays the system's, as do the menu bar and the tray's menu. The setting
+// stays until set again; off, the default, the system shows the menus:
+//
+//	c.SetDrawMenus(runtime.GOOS != "darwin")
+func (_handle *Context) SetDrawMenus(on bool) {
+	_ctx := _handle.build()
+	if _ctx == nil {
+		return
+	}
+	_ctx.SetDrawMenus(on)
 }
 
 // SetTheme makes the frame use t, for the window's root and the widgets
@@ -3475,7 +3505,9 @@ func (_handle Element) ContentTransition(t ContentTransition) Element {
 //		m.EditItems()
 //	})
 //
-// PopoverMenu draws the same menu in the window, with the theme's look.
+// PopoverMenu draws the same menu in the window, with the theme's look,
+// and so does ContextMenu itself in a window that draws its menus
+// (Context.SetDrawMenus).
 func (_handle Element) ContextMenu(build func(m *Menu)) Element {
 	_node := _handle.node()
 	if _node == nil {
@@ -5229,7 +5261,8 @@ func (_handle Element) PointerPosition() (float32, float32, bool) {
 // no room. Assistive technology sees a menu of items, check box items and
 // radio items, as the system's.
 //
-// PopoverMenuButton draws the menu of a menu button so.
+// PopoverMenuButton draws the menu of a menu button so. Context.SetDrawMenus
+// makes a window draw all its context menus so, and Theme.Menu styles them.
 func (_handle Element) PopoverMenu(build func(m *Menu)) Element {
 	_node := _handle.node()
 	if _node == nil {

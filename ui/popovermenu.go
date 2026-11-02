@@ -40,7 +40,8 @@ import (
 // no room. Assistive technology sees a menu of items, check box items and
 // radio items, as the system's.
 //
-// PopoverMenuButton draws the menu of a menu button so.
+// PopoverMenuButton draws the menu of a menu button so. Context.SetDrawMenus
+// makes a window draw all its context menus so, and Theme.Menu styles them.
 func (e *node) PopoverMenu(build func(m *Menu)) *node {
 	e.flags |= flagContextMenu
 	e.buildMenu(false, true, build)
@@ -83,6 +84,46 @@ func (e *node) PopoverMenuButton(build func(m *Menu)) *node {
 	return e
 }
 
+// SetDrawMenus makes the window draw its context menus, those of
+// ContextMenu and of MyGo's own elements (text editing, selectable text,
+// the terminal, Markdown and rich text), as PopoverMenu draws one, in the
+// window with the theme's look (Theme.Menu), rather than the system showing
+// them. They open where the system's do, at the pointer for the secondary
+// button and below the focused element for the menu key or Shift+F10, and
+// have the keys of PopoverMenu's. A menu drawn cannot go past the window's
+// edges and does not float over other windows. The menu of a web view's page
+// stays the system's, as do the menu bar and the tray's menu. The setting
+// stays until set again; off, the default, the system shows the menus:
+//
+//	c.SetDrawMenus(runtime.GOOS != "darwin")
+func (c *context) SetDrawMenus(on bool) {
+	rt := c.rt
+	if rt.drawMenus == on {
+		return
+	}
+	rt.drawMenus = on
+	if !on {
+		rt.menu.edit = nil
+		if d := rt.menu.drawn; d != nil && d.pre != nil {
+			rt.menu.drawn = nil
+		}
+	}
+}
+
+// DrawMenus reports whether the window draws its context menus
+// (SetDrawMenus).
+func (c *context) DrawMenus() bool { return c.rt.drawMenus }
+
+var noMenuStyle MenuStyle
+
+// menuStyle returns the theme's style of drawn menus, the zero one for none.
+func (t *Theme) menuStyle() *MenuStyle {
+	if t.Menu == nil {
+		return &noMenuStyle
+	}
+	return t.Menu
+}
+
 // drawnMenu is a menu drawn in the window (PopoverMenu, PopoverMenuButton)
 // that shows, of the element id.
 type drawnMenu struct {
@@ -106,6 +147,9 @@ type drawnMenu struct {
 	// pointer is where the pointer was when it last moved the highlight:
 	// it moves it again once it moves.
 	pointer [2]float32
+	// pre is the menu already built, for the editing menu of a text input,
+	// which no function builds; nil for the others.
+	pre *shownMenu
 }
 
 // menuLevel is a menu that shows: the item, by its place among the menu's
@@ -152,6 +196,8 @@ type menuDraw struct {
 
 // drawMenu builds the menu drawn for e, while it shows: an overlay
 // holding a panel for the menu and each submenu open, as a popover of e.
+// build fills it; nil for the editing menu of a text input, which shows
+// what drawnMenu.pre holds.
 func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 	d := rt.menu.drawn
 	if d == nil || d.id != e.id || !e.hasState() || e.c.inert {
@@ -162,9 +208,16 @@ func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 		rt.menu.drawn = nil
 		return
 	}
-	run := &menuRun{collect: true}
+	var run *menuRun
 	pm := &platform.Menu{}
-	build(&Menu{run: run, menu: pm, rt: rt, text: rt.states[d.text]})
+	var commands []string // the editing commands of the items by place
+	if build == nil {
+		pm, commands = d.pre.menu, d.pre.commands
+	} else {
+		run = &menuRun{collect: true}
+		build(&Menu{run: run, menu: pm, rt: rt, text: rt.states[d.text]})
+		commands = run.commands
+	}
 	if !slices.ContainsFunc(pm.Items, func(it *platform.MenuItem) bool { return it.Visible && it.Type != platform.MenuItemSeparator }) {
 		rt.menu.drawn = nil
 		return
@@ -211,7 +264,7 @@ func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 		}
 	}
 	if it := md.chosen; it != nil {
-		if name := run.commands[it.ID-1]; name != "" {
+		if name := commands[it.ID-1]; name != "" {
 			target := d.text
 			if target == 0 {
 				target = d.id
@@ -236,6 +289,10 @@ func (md *menuDraw) panel(level int, items []*platform.MenuItem, anchor *node) (
 	panel.flags |= flagFocusable | flagClickable | flagTypeSelect | flagOwnRing | flagScrollY | flagHover
 	panel.MinWidth(t.Space(45)).Padding(t.Space(1)).Radius(t.Radius+2).Background(t.Background).Border(1, t.Border)
 	panel.Shadow(0, 6, 20, 0, RGBA(0, 0, 0, 0.18))
+	style := t.menuStyle()
+	if style.Panel != nil {
+		style.Panel(wrapElement(panel), level)
+	}
 	switch {
 	case level == 0 && d.below:
 		// Below the menu button, or above it where the window has no room,
@@ -263,6 +320,10 @@ func (md *menuDraw) panel(level int, items []*platform.MenuItem, anchor *node) (
 			size++
 		}
 	}
+	line := t.Border
+	if style.Separator != (Color{}) {
+		line = style.Separator
+	}
 	rows := make(map[int]*node, size)
 	var choices []*platform.MenuItem // those the keys move among
 	panel.Children(func() {
@@ -272,7 +333,7 @@ func (md *menuDraw) panel(level int, items []*platform.MenuItem, anchor *node) (
 				continue
 			}
 			if it.Type == platform.MenuItemSeparator {
-				coreBox(c).Height(1).Margin(t.Space(1), t.Space(2)).Background(t.Border).Shrink(0)
+				coreBox(c).Height(1).Margin(t.Space(1), t.Space(2)).Background(line).Shrink(0)
 				continue
 			}
 			pos++
@@ -311,7 +372,17 @@ func choosable(it *platform.MenuItem) bool {
 func (md *menuDraw) item(level int, it *platform.MenuItem, marks bool) *node {
 	c, d := md.c, md.d
 	t := c.theme
+	style := t.menuStyle()
 	row := coreRow(c).AlignItems(Center).Gap(t.Space(2)).Padding(t.Space(1.5), t.Space(2)).Radius(t.Radius).Shrink(0)
+	if style.RowHeight > 0 {
+		row.MinHeight(style.RowHeight)
+	}
+	if style.RowRadius > 0 {
+		row.Radius(style.RowRadius)
+	}
+	if style.RowPadding > 0 {
+		row.Padding(t.Space(1.5), style.RowPadding)
+	}
 	row.Label(it.Label).Disabled(!it.Enabled)
 	row.flags |= flagClickable | flagHover
 	switch it.Type {
@@ -339,7 +410,14 @@ func (md *menuDraw) item(level int, it *platform.MenuItem, marks bool) *node {
 		row.Background(t.SurfaceHover)
 	case hi:
 		color, muted = t.AccentText, t.AccentText
-		row.Background(t.Accent).TextColor(color)
+		bg := t.Accent
+		if style.Highlight != (Color{}) {
+			bg = style.Highlight
+		}
+		if style.HighlightText != (Color{}) {
+			color, muted = style.HighlightText, style.HighlightText
+		}
+		row.Background(bg).TextColor(color)
 	}
 	rtl := row.rtl()
 	row.Children(func() {
@@ -357,9 +435,15 @@ func (md *menuDraw) item(level int, it *platform.MenuItem, marks bool) *node {
 				})
 			}
 		}
-		coreText(c, it.Label).SingleLine().Grow(1)
+		label := coreText(c, it.Label).SingleLine().Grow(1)
+		if style.TextSize > 0 {
+			label.FontSize(style.TextSize)
+		}
 		if keys != "" {
-			coreText(c, keys).SingleLine().TextColor(muted).MarginStart(t.Space(4))
+			k := coreText(c, keys).SingleLine().TextColor(muted).MarginStart(t.Space(4))
+			if style.TextSize > 0 {
+				k.FontSize(style.TextSize)
+			}
 		}
 		if sub {
 			coreBox(c).Size(t.Space(4), t.Space(4)).Shrink(0).Draw(func(p *Painter, r Rect) {

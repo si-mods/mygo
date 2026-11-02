@@ -41,10 +41,17 @@ import (
 //		m.EditItems()
 //	})
 //
-// PopoverMenu draws the same menu in the window, with the theme's look.
+// PopoverMenu draws the same menu in the window, with the theme's look,
+// and so does ContextMenu itself in a window that draws its menus
+// (Context.SetDrawMenus).
 func (e *node) ContextMenu(build func(m *Menu)) *node {
 	e.flags |= flagContextMenu
-	e.buildMenu(false, false, build)
+	rt := e.c.rt
+	drawn := rt.drawMenus
+	e.buildMenu(false, drawn, build)
+	if drawn {
+		rt.drawMenu(e, build)
+	}
 	return e
 }
 
@@ -302,6 +309,9 @@ type menuState struct {
 	// drawn is the menu drawn in the window that shows (PopoverMenu,
 	// PopoverMenuButton), nil while none does.
 	drawn *drawnMenu
+	// edit is the editing menu of a text input that the window draws, which
+	// opens in the next pass.
+	edit *shownMenu
 }
 
 // shownMenu is a context menu built for the element id. commands are the
@@ -491,6 +501,41 @@ func (rt *engine) openMenu(id uint64, button bool, pm *platform.Menu, labels, co
 	mr.pending = &shownMenu{id: id, button: button, menu: pm, labels: labels, commands: commands, x: mr.x, y: mr.y, text: mr.text}
 }
 
+// drawEditMenu builds the editing menu of a text input that the window
+// draws, which no element's function builds: it opens, and shows, as an
+// overlay of the text input, once the view is built.
+func (rt *engine) drawEditMenu() {
+	mr := &rt.menu
+	if p := mr.edit; p != nil {
+		mr.edit = nil
+		if e := rt.menuElement(p.id); e != nil {
+			rt.openDrawnMenu(e)
+			if mr.drawn != nil {
+				mr.drawn.pre = p
+			}
+		}
+	}
+	if d := mr.drawn; d != nil && d.pre != nil {
+		if e := rt.menuElement(d.id); e != nil {
+			rt.drawMenu(e, nil)
+		}
+	}
+}
+
+// menuElement returns the element id of the pass being built, in the view
+// or its overlays, or nil.
+func (rt *engine) menuElement(id uint64) *node {
+	for _, root := range []*node{rt.c.root, rt.c.overlay} {
+		if root == nil {
+			continue
+		}
+		if e := rt.elementsByID(root)[id]; e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
 // resolveMenu opens the menu asked for that no ContextMenu built, after a
 // pass of the view: a text input's, with the editing commands.
 func (rt *engine) resolveMenu() {
@@ -574,6 +619,13 @@ func (rt *engine) editMenu(s *state) {
 		}
 		pm.Items = append(pm.Items, it)
 		labels[i], names[i] = c.label, c.name
+	}
+	if rt.drawMenus && len(pm.Items) > 0 {
+		// The window draws it: the next pass builds it, as an overlay of the
+		// text (drawEditMenu).
+		rt.menu.edit = &shownMenu{id: s.id, menu: pm, labels: labels, commands: names, text: s.id}
+		rt.consumed = true
+		return
 	}
 	rt.openMenu(s.id, false, pm, labels, names)
 }
