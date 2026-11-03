@@ -72,6 +72,7 @@ go run ./examples/markdown-chat            # Markdown replies streaming in (ui/m
 go run ./examples/notes                    # the rich text editor (ui/richtext), in a notes app
 go run ./examples/terminal                 # a terminal (downloads libghostty-vt once)
 go run ./examples/loading                  # loading.dev's 29 indicators (plugins/loading)
+go run ./examples/sf-symbols               # the system's SF Symbols on macOS (plugins/sfsymbols)
 go generate ./plugins/terminal             # build libghostty-vt for every platform (with Zig), write Ghostty's themes
 go generate ./internal/gpu/d3d11           # recompile the Direct3D shader (on Windows)
 go generate ./internal/gpu/metal           # recompile the Metal shader (on macOS, with Xcode)
@@ -114,6 +115,8 @@ Windows GUI tests need Windows with the WebView2 Runtime (a GitHub Actions
   and `plugins/game/gamepad`, which reads controllers. The loading plugin
   is Go only too, loading.dev's indicators drawn with `ui.Painter` on
   ui's public API: keep them as loading-dev draws them in a browser.
+  The sfsymbols plugin is Go only too: on macOS it rasterizes the system's
+  SF Symbols through purego, and elsewhere it has none (`Image` says so).
   The automation plugin is Go only too, gated with the inspector
   (`mygo_noinspector`): a socket (`MYGO_AUTOMATION`) through which
   other processes drive the app, reaching native UI only through
