@@ -255,7 +255,8 @@ type Builder struct {
 	// NoClasses puts every batch in ClassGeneral, for tests and
 	// measurements that compare the specialized shaders with the general one.
 	NoClasses bool
-	// Classes separates batches for renderers with specialized fragment shaders.
+	// Classes separates batches for renderers with specialized fragment shaders
+	// (Metal's and Direct3D 11's).
 	Classes bool
 	// GeneralClasses has a bit (1 << Class) for each class that draws with the
 	// general shader, for tests that find which specialized one differs.
@@ -390,24 +391,28 @@ type clip struct {
 	scissor Scissor
 	shape   scene.ClipShape
 	// moved tells that this clip or one it is nested in is transformed,
-	// which the scissor rectangles don't follow.
-	moved       bool
-	masked      bool
-	maskSlot    int
-	maskTexture uintptr
+	// which the scissor rectangles don't follow, and masks that this clip
+	// or one it is nested in is masked by a gradient or an image
+	// (scene.ClipShape.Masks), which the shaders don't evaluate.
+	moved, masks bool
+	masked       bool
+	maskSlot     int
+	maskTexture  uintptr
 }
 
-// pushed returns the clip that op (an OpPushClip) makes within top, without
-// a mask slot or texture.
-func (b *Builder) pushed(top *clip, op *scene.Op, encloses bool) clip {
-	rect, transform := scene.MovedClip(op.Rect, op.Transform)
+// pushed returns the clip that op (an OpPushClip) of s makes within top,
+// without a mask slot or texture.
+func (b *Builder) pushed(s *scene.Scene, top *clip, op *scene.Op, encloses bool) clip {
+	shape := scene.ClipShapeOf(op, s.Stops)
+	rect, transform := shape.Rect, shape.Transform
 	bounds := top.bounds.Intersect(transform.Bounds(rect))
 	// The innermost clip shapes its edges in the shader, the others cut
-	// with the scissor rectangle.
-	c := clip{rect: rect, radii: scene.Corners(rect, op.Radii, op.Continuous), bounds: bounds,
-		shape: scene.ClipShape{Rect: rect, Radii: op.Radii, Transform: transform, Continuous: op.Continuous}, maskSlot: -1}
+	// with the scissor rectangle; a clip masked by a gradient or an image,
+	// and those inside it, with a mask of the clips.
+	c := clip{rect: rect, radii: scene.Corners(rect, op.Radii, op.Continuous), bounds: bounds, shape: shape, maskSlot: -1}
 	c.moved = top.moved || transform.Set
-	c.masked = c.moved || encloses && (top.masked || c.radii != [4]float32{})
+	c.masks = top.masks || shape.Masks()
+	c.masked = c.moved || c.masks || encloses && (top.masked || c.radii != [4]float32{})
 	if bounds.W > 0 && bounds.H > 0 {
 		c.scissor = Scissor{int32(math.Floor(float64(bounds.X))), int32(math.Floor(float64(bounds.Y))),
 			int32(math.Ceil(float64(bounds.X + bounds.W))), int32(math.Ceil(float64(bounds.Y + bounds.H)))}
@@ -450,7 +455,7 @@ func (b *Builder) Build(s *scene.Scene, image func(*scene.Image) uintptr) *scene
 		}
 		switch op.Kind {
 		case scene.OpPushClip:
-			c := b.pushed(&b.stack[len(b.stack)-1], op, b.encloses[i])
+			c := b.pushed(s, &b.stack[len(b.stack)-1], op, b.encloses[i])
 			if c.masked {
 				c.maskSlot = b.maskUsed
 				b.maskUsed++

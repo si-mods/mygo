@@ -313,6 +313,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 	chain := rt.hitChain(x, y)
 	rt.setHover(chain)
 	rt.pressDragger = 0
+	rt.pressEnded = nil
 	if len(chain) > 0 {
 		rt.downs = append(rt.downs, chain[0])
 	} else {
@@ -354,7 +355,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 	if h != nil && rt.deliver(h, InputEvent{Kind: InputPointerDown, Button: button, Mods: mods, Clicks: clicks}) {
 		// It takes the moves and the release.
 		rt.pressed, rt.pressButton, rt.pressClicks = h, button, clicks
-		h.pressed = true
+		h.pressed, h.pressButton = true, button
 		h.pressPending = true
 		h.pressX, h.pressY = h.local(x, y)
 		h.drag.reset(rt.now(), x, y)
@@ -383,7 +384,7 @@ func (rt *engine) pointerDown(x, y float32, button int, mods Modifiers, clicks i
 	}
 	rt.pressed, rt.pressButton, rt.pressClicks = target, button, clicks
 	rt.pressDragger = pressDragger(rt, chain, target)
-	target.pressed, target.pressMods = true, mods
+	target.pressed, target.pressButton, target.pressMods = true, button, mods
 	target.pressPending = true
 	target.pressX, target.pressY = target.local(x, y)
 	target.drag.reset(rt.now(), x, y)
@@ -488,8 +489,9 @@ func (rt *engine) pointerUp(button, clicks int) {
 	rt.pressed = nil
 	r := &s.releaseLater
 	r.due, r.x, r.y = true, rt.pointerX, rt.pointerY
-	// A press that moved ends a drag; a click does not.
-	r.released = s.drag.n > 1
+	// A press of the primary button that moved ends a drag; a click does
+	// not.
+	r.released = button == 0 && s.drag.n > 1
 	v := s.drag.velocities(rt.now())
 	s.releaseVX, s.releaseVY, s.releaseWX, s.releaseWY = v[0], v[1], v[2], v[3]
 	if ed := s.editor; ed != nil {
@@ -518,6 +520,8 @@ func (rt *engine) pointerUp(button, clicks int) {
 	// now.
 	if s.dragX == 0 && s.dragY == 0 {
 		rt.applyRelease(s)
+	} else {
+		rt.pressEnded = s
 	}
 	rt.setHover(rt.hitChain(rt.pointerX, rt.pointerY))
 	rt.requestFrame()
@@ -535,6 +539,9 @@ func (rt *engine) applyRelease(s *state) {
 		s.clickMods = r.clickMods
 	}
 	r.due, r.clicks, r.rightClicks = false, 0, 0
+	if rt.pressEnded == s {
+		rt.pressEnded = nil
+	}
 }
 
 // click clicks s with mods held, for the next pass to see: after the
@@ -1319,8 +1326,10 @@ func (rt *engine) pressMove(x0, y0, x1, y1 float32) {
 	}
 }
 
-// Pressed reports whether the element is being pressed with the pointer,
-// unless it is disabled.
+// Pressed reports whether the element is being pressed with the pointer's
+// primary button, unless it is disabled. A press of another button, as a
+// right-click's, is no press here, as CSS's :active and drags on the web
+// have it: PressedButton tells which button presses the element.
 func (e *node) Pressed() bool {
 	if !e.hasState() {
 		return false
@@ -1329,7 +1338,7 @@ func (e *node) Pressed() bool {
 	s := e.st
 	rt := e.c.rt
 	x, y := s.pointer(rt)
-	if !s.pressed || e.disabled() || !rt.contains(s, Rect{s.x, s.y, s.w, s.h}, x, y) {
+	if !s.pressedPrimary() || e.disabled() || !rt.contains(s, Rect{s.x, s.y, s.w, s.h}, x, y) {
 		return false
 	}
 	if s.pressPending {
@@ -1340,6 +1349,31 @@ func (e *node) Pressed() bool {
 	}
 	return true
 }
+
+// PressedButton returns the button of the pointer pressing the element, 0
+// for the primary, 1 the secondary and 2 the middle, while the press
+// lasts, wherever the pointer goes, as Dragged; ok is false while nothing
+// presses it, or it is disabled. Pressed, Dragged, DragVelocity and
+// DragEnded follow the primary button alone; an element that pans with
+// the middle button, as a canvas, reads the button here and where the
+// pointer goes with PointerPosition.
+func (e *node) PressedButton() (button int, ok bool) {
+	if !e.hasState() {
+		return 0, false
+	}
+	e.flags |= flagClickable
+	s := e.st
+	if !s.pressed || e.disabled() {
+		return 0, false
+	}
+	return s.pressButton, true
+}
+
+// pressedPrimary reports whether the pointer's primary button presses s:
+// what Pressed and Dragged report, and what moves sliders, drags and the
+// like. Another button's press only clicks (RightClicked) or opens a
+// context menu.
+func (s *state) pressedPrimary() bool { return s.pressed && s.pressButton == 0 }
 
 // Focused reports whether the element has the keyboard focus: for a field
 // around an input, as SearchField's, whether its input has it.
@@ -1361,6 +1395,7 @@ func (e *node) FocusWithin() bool {
 		return false
 	}
 	rt := e.c.rt
+	rt.withinRead = true
 	for s := rt.states[rt.focused]; s != nil; s = rt.states[s.parent] {
 		if s.id == e.id {
 			return true
@@ -1428,16 +1463,17 @@ func (e *node) PointerPosition() (x, y float32, over bool) {
 }
 
 // Dragged reports how far the pointer moved in the element's local axes
-// since the last frame while pressing it. The moves just before the
-// pointer let go come while the element is still pressed, and the press
-// ends in the build after.
+// since the last frame while pressing it with the primary button, as
+// Pressed: a drag with another button moves nothing (PressedButton). The
+// moves just before the pointer let go come while the element is still
+// pressed, and the press ends in the build after.
 func (e *node) Dragged() (dx, dy float32, ok bool) {
 	if !e.hasState() {
 		return 0, 0, false
 	}
 	e.flags |= flagDraggable
 	s := e.st
-	if !s.pressed {
+	if !s.pressedPrimary() {
 		return 0, 0, false
 	}
 	if s.dragX != 0 || s.dragY != 0 {
@@ -1448,23 +1484,25 @@ func (e *node) Dragged() (dx, dy float32, ok bool) {
 
 // DragVelocity returns how fast, in DIPs per second along the element's
 // local axes, the pointer pressing the element moves now: zero once it
-// stops for a moment, or while nothing presses the element.
+// stops for a moment, or while nothing presses the element with the
+// primary button (Dragged).
 func (e *node) DragVelocity() (vx, vy float32) {
 	if !e.hasState() {
 		return 0, 0
 	}
 	e.flags |= flagDraggable
 	s := e.st
-	if !s.pressed {
+	if !s.pressedPrimary() {
 		return 0, 0
 	}
 	return s.drag.velocity(e.c.rt.now())
 }
 
-// DragEnded reports whether the pointer pressing the element, and moving,
-// let go since the last frame, with how fast it moved then, as
-// DragVelocity: a spring taking over (SpringOptions.Velocity) keeps the
-// fling going. A click, which does not move, ends no drag.
+// DragEnded reports whether the pointer pressing the element with the
+// primary button, and moving, let go since the last frame, with how fast
+// it moved then, as DragVelocity: a spring taking over
+// (SpringOptions.Velocity) keeps the fling going. A click, which does not
+// move, ends no drag, nor does a drag with another button.
 func (e *node) DragEnded() (vx, vy float32, ok bool) {
 	if !e.hasState() {
 		return 0, 0, false
@@ -1656,6 +1694,22 @@ func (rt *engine) scrollbarPress(chain []uint64, x, y float32) bool {
 func (rt *engine) windowFocus() bool {
 	rt.focusRead = true
 	return rt.windowFocused
+}
+
+// windowActive reports whether the window is drawn as active, the window
+// the user's input goes to (Context.WindowActive), noting that the frame
+// depends on it.
+func (rt *engine) windowActive() bool {
+	rt.activeRead = true
+	return rt.host.active()
+}
+
+// activeChanged draws a frame after the window became active or ceased to
+// be, when the last frame read it, as focusChanged does.
+func (rt *engine) activeChanged() {
+	if rt.activeRead {
+		rt.requestFrame()
+	}
 }
 
 // focusChanged draws a frame after the window gained or lost the keyboard

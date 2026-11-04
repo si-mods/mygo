@@ -257,7 +257,7 @@ func calendarGrid(c *context, grid *node, date, cursor *time.Time, moveChooses b
 					}
 					switch {
 					case chosen:
-						cell.Background(t.Accent)
+						cell.Background(c.accent(t))
 						fg = t.AccentText
 					case atCursor:
 						cell.Background(t.SurfaceHover)
@@ -284,7 +284,7 @@ func calendarGrid(c *context, grid *node, date, cursor *time.Time, moveChooses b
 	})
 	grid.DrawOver(func(p *Painter, r Rect) {
 		if grid.FocusVisible() {
-			p.FocusRing(r, [4]float32{t.Radius, t.Radius, t.Radius, t.Radius})
+			p.focusRingOf(grid, r, [4]float32{t.Radius, t.Radius, t.Radius, t.Radius})
 		}
 	})
 	return grid

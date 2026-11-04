@@ -319,11 +319,11 @@ func TestDrawMenusEditMenuKeepsWhereAsked(t *testing.T) {
 	if d == nil {
 		t.Fatal("no drawn menu")
 	}
-	if d.dx != 13 || d.dy != 7 || d.text != s.id || d.below {
-		t.Errorf("menu opened at (%v, %v) on text %d below %v, want (13, 7) on %d, not below", d.dx, d.dy, d.text, d.below, s.id)
+	if d.menu.dx != 13 || d.menu.dy != 7 || d.text != s.id || d.menu.below {
+		t.Errorf("menu opened at (%v, %v) on text %d below %v, want (13, 7) on %d, not below", d.menu.dx, d.menu.dy, d.text, d.menu.below, s.id)
 	}
-	if d.levels[0].hi != 0 {
-		t.Errorf("the keyboard's start applied: hi %d", d.levels[0].hi)
+	if d.menu.levels[0].hi != 0 {
+		t.Errorf("the keyboard's start applied: hi %d", d.menu.levels[0].hi)
 	}
 }
 

@@ -101,6 +101,14 @@ type inspector struct {
 	query   string
 	match   int
 	matches []int32
+	// edits are what the Styles tab changed, by element, until the
+	// inspector closes (inspector_edit.go), and editing the value being
+	// typed.
+	edits   map[uint64][]inspEdit
+	editing inspEditing
+	// sources are where the app builds the elements chosen that have
+	// edits, as changesAsGo tells.
+	sources map[uint64]string
 	// Scroll offsets of the breadcrumbs, the sidebar and the issues.
 	crumbs       ScrollState
 	sideScroll   ScrollState
@@ -201,6 +209,9 @@ func (rt *engine) toggleInspector() {
 	in.picking, in.hovered = false, 0
 	if !in.open {
 		in.nodes, in.rows, in.sel = nil, nil, inspDetails{}
+		// What the Styles tab changed goes with the panel: the window shows
+		// what the view builds again.
+		in.edits, in.editing, in.sources = nil, inspEditing{}, nil
 	} else if in.keys == nil {
 		in.keys = map[uint64]any{}
 	}
@@ -285,6 +296,7 @@ func (in *inspector) pointer(rt *engine, ev platform.SurfaceEvent, x, y float32)
 // choose chooses the element id.
 func (in *inspector) choose(id uint64) {
 	if id != in.selected {
+		in.finishEdit(true)
 		in.selected, in.source = id, ""
 		// The breadcrumbs show the element chosen, at their end.
 		in.crumbs.X = math.MaxFloat32
@@ -307,6 +319,12 @@ func (in *inspector) snapshot(rt *engine, root *node) {
 	in.sel = inspDetails{}
 	if e := in.selElem; e != nil {
 		in.sel = describe(rt, e)
+		if in.source != "" && len(in.edits[e.id]) > 0 {
+			if in.sources == nil {
+				in.sources = map[uint64]string{}
+			}
+			in.sources[e.id] = in.source
+		}
 	}
 	sum = mix(sum, in.sel.hash())
 	sum = mix(sum, uint64(len(rt.warnings)))
