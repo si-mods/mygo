@@ -21,6 +21,13 @@ Elements are found by their text, or by their `Label` for those without,
 as an icon button: `tt.Click("Close")`, `tt.Find("Volume")`,
 `tt.Focused("Name")`.
 
+`Click`, `ClickWith` and `RightClick` check the first matching element
+before sending input. They return an error if it has no visible area or
+the center of that area would reach another control or nothing. They do
+not scroll it into view or search for another uncovered point. `Find`
+still returns a matching clipped box, which may have zero width or height;
+`ClickAt` sends input at the given coordinates without a named target.
+
 Two elements given the same `Key` under one parent share one state, so
 that a click or the focus meant for one goes to the other: a tester
 panics where the second key was given, as apps only log it.
@@ -28,7 +35,9 @@ panics where the second key was given, as apps only log it.
 ## What a tester does
 
 - **Pointer.** `tt.Click`, `tt.ClickAt`, `tt.ClickWith(ui.Shift, "Row 3")`,
-  `tt.Press`, `tt.Move` and `tt.Release`, `tt.Scroll`, which scrolls at
+  `tt.Press`, `tt.Move` and `tt.Release`, `tt.PressButton` and
+  `tt.ReleaseButton` for another button, as `tt.PressButton(1, x, y)` for
+  a right-button drag, `tt.Scroll`, which scrolls at
   once as a touchpad does, and `tt.Wheel`, a notch of a mouse wheel, which
   glides there as the clock advances (`tt.Advance`).
 - **Keyboard.** `tt.Key(ui.Cmd, ui.KeyS)` presses a key, `tt.TypeKey` a key
@@ -44,7 +53,10 @@ panics where the second key was given, as apps only log it.
   `tt.SetPreferences` and `tt.SetDirection` (lay it out
   [right to left](right-to-left.md)) change the window and the desktop's
   settings;
-  `tt.SetFocused` takes the keyboard from the window and gives it back.
+  `tt.SetFocused` takes the keyboard from the window and gives it back,
+  and `tt.SetWindowActive` draws it as inactive and active again, as
+  another window taking the user's input does
+  ([inactive windows](windows.md#active-and-inactive-windows)).
 - **What it shows.** `tt.Texts`, `tt.HasText`, `tt.Find` (the box of a
   text), `tt.Focused`, `tt.Cursor`, `tt.Clipboard`, `tt.OpenedURLs` and
   `tt.Announcements`, what the view asked screen readers to read out;

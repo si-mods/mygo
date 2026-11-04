@@ -165,6 +165,7 @@ type textStyle struct {
 	underline  bool
 	wavy       bool
 	dotted     bool
+	solid      bool // an underline through descenders (Link's hover)
 	strike     bool
 	spacing    float32 // letter spacing
 	features   string
@@ -242,6 +243,7 @@ type layoutStyle struct {
 	maxLines int
 	single   bool
 	noWrap   bool
+	balance  bool
 	ellipsis string
 }
 
@@ -280,6 +282,7 @@ type node struct {
 
 	// Visual geometry, composed after layout.
 	transform        Transform
+	translatePct     [2]float32 // TranslatePercent's
 	originX, originY float32
 	originSet        bool
 	world            scene.Affine
@@ -313,6 +316,10 @@ type node struct {
 	// elements inside it by, which still show and read to assistive
 	// technology (IgnoreInput).
 	ignoreInput bool
+	// accessHidden leaves it and the elements inside it out of what
+	// assistive technology reads, while they still show and take input
+	// (AccessHidden).
+	accessHidden bool
 
 	// Painting.
 	bg          Color
@@ -332,7 +339,10 @@ type node struct {
 	// grads holds a conic or radial fill and a border's gradient, which
 	// few elements have; blur is the standard deviation of the element's
 	// blur, in DIPs.
-	grads      *gradients
+	grads *gradients
+	// clipping is how the element clips and masks all it paints
+	// (ClipInset, MaskLinearGradient), which few elements do.
+	clipping   *clipping
 	blur       float32
 	opacity    float32
 	opacitySet bool
@@ -378,6 +388,11 @@ type node struct {
 	maximizeButton bool
 	fit            Fit
 	gray           bool
+	// ringOffset and ringColor are the offset and the color of the
+	// element's focus ring, where ringSet says it sets them.
+	ringOffset float32
+	ringColor  Color
+	ringSet    uint8
 	// dismissed: Escape or a click outside closed the dialog or popover
 	// whose panel this is, in this frame (Dismissed).
 	dismissed bool
@@ -398,8 +413,10 @@ type node struct {
 	// tip marks an element with a tooltip (TooltipBase).
 	tip bool
 	// highlighted is set on the option of a select the pointer or the
-	// arrows are on.
+	// arrows are on, and keepOpen on an item of a menu that leaves the
+	// menu open as it is chosen (KeepOpen).
 	highlighted bool
+	keepOpen    bool
 	accValue    string
 	accRange    [3]float64
 	hasRange    bool
@@ -503,10 +520,12 @@ type node struct {
 	laid uint64
 	// leaving marks a copy of an element gone, which its exit transition
 	// animates (1 if it was in its parent's flow, 2 if absolute), and
-	// ghosts an element holding such copies. attach is where Attach puts
-	// the element, 0 for nowhere.
+	// ghosts an element holding such copies; lift one flying with a
+	// Match, which paints over the rest of its layer (matches.lifted).
+	// attach is where Attach puts the element, 0 for nowhere.
 	leaving uint8
 	ghosts  bool
+	lift    bool
 	attach  attachment
 	// serial is the order the pass made the element in: of overlays, the
 	// one made last shows on top.
@@ -1097,8 +1116,29 @@ func (e *node) Invisible() *node { e.flags |= flagInvisible; return e }
 //	})
 //
 // Unlike HTML's inert, it leaves them to assistive technology. Invisible
-// and Hidden hide them from it too, and Disabled takes their press away.
+// and Hidden hide them from it too, and Disabled takes their press away;
+// AccessHidden hides them from it alone.
 func (e *node) IgnoreInput(ignore bool) *node { e.ignoreInput = ignore; return e }
+
+// AccessHidden leaves the element and those inside it out of what
+// assistive technology reads when hide is true, while they still show, as
+// HTML's aria-hidden does: none of them is in its tree, their text names
+// no element around them, and it can neither press, focus nor edit them.
+// The pointer and the keyboard still reach them, unless they IgnoreInput
+// too, which makes them inert, as HTML's inert does; without it, keep the
+// keyboard focus out of them, where assistive technology cannot follow.
+//
+// What shows but is not there to read is so read once, or not at all: a
+// page sliding out beside the one that replaces it, the cards peeking from
+// behind the front one of a stack, a copy of a text fading into another:
+//
+//	if app.leaving >= 0 {
+//		page(c, app.leaving).Absolute().Translate(-x, 0).IgnoreInput(true).AccessHidden(true)
+//	}
+//	page(c, app.tab).Translate(width-x, 0)
+//
+// RoleNone leaves out the element but not those inside it.
+func (e *node) AccessHidden(hide bool) *node { e.accessHidden = hide; return e }
 
 // Hidden hides the element and its children when hide is true, as CSS's
 // display: none does: unlike an Invisible element, it takes no room in
@@ -1356,14 +1396,14 @@ func (e *node) TextAlign(a Align) *node { e.ts.align = a; e.ts.set |= setAlign; 
 
 // Underline underlines text.
 func (e *node) Underline() *node {
-	e.ts.underline, e.ts.wavy, e.ts.dotted = true, false, false
+	e.ts.underline, e.ts.wavy, e.ts.dotted, e.ts.solid = true, false, false, false
 	e.ts.set |= setUnderline
 	return e
 }
 
 // WavyUnderline underlines text with a wave, as spell checkers mark words.
 func (e *node) WavyUnderline() *node {
-	e.ts.underline, e.ts.wavy, e.ts.dotted = true, true, false
+	e.ts.underline, e.ts.wavy, e.ts.dotted, e.ts.solid = true, true, false, false
 	e.ts.set |= setUnderline
 	return e
 }
@@ -1371,7 +1411,7 @@ func (e *node) WavyUnderline() *node {
 // DottedUnderline underlines text with a line of dots, as links mark
 // hover.
 func (e *node) DottedUnderline() *node {
-	e.ts.underline, e.ts.wavy, e.ts.dotted = true, false, true
+	e.ts.underline, e.ts.wavy, e.ts.dotted, e.ts.solid = true, false, true, false
 	e.ts.set |= setUnderline
 	return e
 }
@@ -1456,6 +1496,15 @@ func (e *node) SingleLine() *node { e.single = true; e.maxLines = 1; return e }
 // newlines, even where it overflows the element.
 func (e *node) NoWrap() *node { e.noWrap = true; return e }
 
+// Balance wraps the element's text in lines of about the same length, as
+// CSS's text-wrap: balance does: a heading or a short callout that takes
+// two lines takes two of half its length each, rather than a full line
+// and a word alone on the next. The text takes as many lines as it would
+// without it, at the width layout gives it, and keeps its alignment
+// within that width. Each paragraph is balanced on its own, once a
+// layout, as the text system keeps it.
+func (e *node) Balance() *node { e.balance = true; return e }
+
 // Ellipsis sets what ends text that MaxLines or SingleLine cuts, "…" by
 // default.
 func (e *node) Ellipsis(s string) *node { e.ellipsis = s; return e }
@@ -1534,6 +1583,34 @@ func (e *node) FocusRing(show bool) *node {
 	}
 	return e
 }
+
+// FocusRingOffset sets how far outside the element's edge its focus ring
+// goes, in DIPs, in place of the theme's FocusRingOffset: 0 puts it on
+// the edge, and a negative offset inside it, as for an element whose
+// ancestor clips what goes past it, as a header in an accordion's box.
+// Its corners follow the element's, as CSS's outline does. The widgets
+// that ring a part of themselves, as a check box its box, ring it so.
+func (e *node) FocusRingOffset(d float32) *node {
+	e.ringOffset = d
+	e.ringSet |= ringOffsetSet
+	return e
+}
+
+// FocusRingColor sets the color of the element's focus ring, in place of
+// the theme's Focus, as for an element on a background the theme's ring
+// does not stand out on.
+func (e *node) FocusRingColor(color Color) *node {
+	e.ringColor = color
+	e.ringSet |= ringColorSet
+	return e
+}
+
+// What an element sets of its focus ring (FocusRingOffset,
+// FocusRingColor).
+const (
+	ringOffsetSet uint8 = 1 << iota
+	ringColorSet
+)
 
 // Draw paints on the element with p after its background, before its
 // children; r is its box. fn only paints: it may run more than once a

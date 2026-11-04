@@ -17,6 +17,11 @@ mygo.NewWindow(mygo.WindowOptions{
 })
 ```
 
+The view first runs once `NewWindow` returned, so it can use the window
+kept from it, as `app.win.Title()`: called on the main thread, `NewWindow`
+shows the window on the main loop's next turn (see
+[showing windows](../windows.md#show-windows-without-flashing)).
+
 ## Title bars
 
 With `TitleBarStyle: mygo.TitleBarHidden`, the view draws the title bar
@@ -70,6 +75,18 @@ where it shows. A touchpad scrolls the content as far as the fingers
 move; a wheel's lines scroll as far as unzoomed. The window controls keep
 their size: `c.TitleBar()` is the room they take, zoomed, so that a title
 bar laid out clear of them stays clear.
+
+The window's own sizes are not zoomed: `WindowOptions.Width` and `Height`,
+`Window.SetContentSize` and `Window.ContentSize` are in the window's DIPs,
+`z` times the size the view sees, as a page's are at its zoom
+(`Page.SetZoomFactor`). A flyout of 320 × 400 zoomed by 1.5 lays its view
+out in about 213 × 267. To give the view a size in its own DIPs, multiply
+it by the zoom:
+
+```go
+z := c.Zoom()
+flyout.SetContentSize(int(math.Ceil(float64(320*z))), int(math.Ceil(float64(400*z))))
+```
 
 A transform's `Scale`, by contrast, scales what is drawn at the content's
 own size: its text is drawn as bitmaps of their untransformed size,
@@ -190,6 +207,50 @@ containers and clips around the element leave, not to their rounded
 corners. It shows under web views (`ui.WebView`), not over their pages.
 Captures of the window's content (its frames' pixels) show the hole, not
 the glass.
+
+## Flyouts that fit their content
+
+A flyout with `FitContent` takes the size its native UI measures and
+follows it as it changes, within `MinWidth`, `MinHeight`, `MaxWidth`,
+`MaxHeight` and the work area: the root's content at its max-content
+width and its height at that width, as a tray panel whose list or error
+line comes and goes. A frame that measures another size resizes the
+flyout, and the next lays the content out at that size. A hidden flyout
+lays out content that changed while it was hidden as it shows, and shows
+at the size that content takes. See
+[Size a flyout to its content](../windows.md#size-a-flyout-to-its-content).
+
+## Active and inactive windows
+
+Native apps draw the window the user's input goes to apart from the
+others, so that users tell at a glance which window has it: macOS fades
+the material of an inactive window's sidebar to an opaque gray and the
+accent of its selections and controls to gray, Windows draws its Mica as
+a solid fill, GTK styles it `:backdrop`. A window is active while it, or
+one of its flyouts, has the keyboard (a menu or popover belongs to its
+window), and always while `SetActiveAppearance` keeps it so; panels and
+flyouts without a parent float over whatever app is in front and are
+always active.
+
+The built-in widgets follow on their own: selected rows, the icons of a
+sidebar, checked check boxes, radio buttons and switches, sliders,
+progress bars and the line of the selected tab fade from the accent to
+the theme's `InactiveAccent`, a gray, and primary buttons look as the
+others ([themes](styling.md#themes) keep the accent with
+`InactiveAccent: Accent`). A view draws its own with `c.WindowActive()`:
+
+```go
+dot := c.Theme().Accent
+if !c.WindowActive() {
+	dot = c.Theme().TextMuted
+}
+```
+
+A frame that reads it is drawn again as it changes; one that does not
+draws nothing more. `Tester.SetWindowActive` switches it in tests,
+leaving the keyboard focus to `SetFocused`. The window's material follows
+the system (macOS fades it in a window other than a panel or a flyout,
+Windows its Mica); `examples/vibrancy` shows both together.
 
 ## Closing
 

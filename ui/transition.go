@@ -39,8 +39,15 @@ type ElementTransition struct {
 	// Exit, if set, is where the element goes once it is no longer built,
 	// while its parent still is: a copy of it, as the last frame showed
 	// it, goes there under its siblings, taking neither room, the pointer
-	// nor the focus, and is then gone.
+	// nor the focus, and is then gone. The parent's ChildExit, in the
+	// frame it goes, says where it goes instead.
 	Exit *Motion
+	// AfterExits holds the element appearing while copies of its siblings
+	// leave with their Exit: it takes its place unseen, and comes in with
+	// its Enter once they are gone, so that its parent shows one of them
+	// at a time, as a panel that finishes leaving before the next one
+	// appears.
+	AfterExits bool
 	// Match, if set, is an identity the element shares with one that the
 	// frame before showed elsewhere, even in another parent, as a photo's
 	// thumbnail in a grid and the photo in a detail view: the element
@@ -48,13 +55,29 @@ type ElementTransition struct {
 	// colors, as SwiftUI's matchedGeometryEffect and Motion's layoutId.
 	// Use a value of a type of your own, as a struct of the photo's ID.
 	Match any
+	// Fly, with a Match, flies the element appearing from where the other
+	// was, as Keynote's Magic Move and Flutter's Hero do: from its
+	// corners, opacity, text color and transform (in 3D too), and from the
+	// transforms of the elements around it, drawn over the rest of the
+	// window (or of its overlay) on the way, out of the clips around it,
+	// where it takes the pointer. The other, flying too, goes with it,
+	// fading out under it, rather than as its Exit says.
+	Fly bool
+	// ScaleContent shows the element's size changing, as it resizes or
+	// comes from the element of its Match, by scaling it from its own size
+	// rather than laying its content out at each size on the way: its text
+	// keeps its lines, growing or shrinking with it, as a title into a
+	// heading, and a picture stretches with its box.
+	ScaleContent bool
 }
 
 // Motion is where an element appearing comes from, or where one going
 // goes, from its place in the layout.
 type Motion struct {
-	// X and Y move it by as many DIPs.
-	X, Y float32
+	// X and Y move it by as many DIPs, and XPercent and YPercent by as
+	// many percent of its own width and height, as TranslatePercent does.
+	X, Y               float32
+	XPercent, YPercent float32
 	// Opacity is how opaque it is there: 0, as by default, is
 	// transparent, and 1 opaque.
 	Opacity float32
@@ -65,6 +88,9 @@ type Motion struct {
 	// tenth smaller; 0, as by default, keeps it at its size, as 1 does.
 	// Rotate turns it by as many degrees clockwise.
 	Scale, Rotate float32
+	// Blur blurs it there by as many DIPs, as Element.Blur does: text or
+	// an icon crossing over to another through a blur of 4 or so.
+	Blur float32
 }
 
 // defaultDuration is the Duration of a Transition without one.
@@ -84,10 +110,13 @@ const defaultDuration = 200 * time.Millisecond
 //
 // Changes made by resizing the window do not animate. While the desktop
 // asks for less motion (Preferences.ReduceMotion), nothing moves: colors
-// still change smoothly, and an Enter or Exit that fades without
-// collapsing fades in place.
+// still change smoothly, and an Enter or Exit that fades or blurs without
+// collapsing fades and blurs in place.
 func (e *node) Transition(t ElementTransition) *node {
 	e.c.transitions = append(e.c.transitions, transitionUse{e: e, t: t})
+	if t.Match != nil || t.ScaleContent {
+		e.c.rt.linkMatches()
+	}
 	scene.FoldTranslations() // renderers draw the poses that only move as untransformed content
 	return e
 }
@@ -110,6 +139,51 @@ func (e *node) Transitioning() bool {
 	return r != nil && r.built+1 >= frame && (r.moving != 0 || r.colorMoving || r.matching)
 }
 
+// ChildExit says where the children of the element that leave in this
+// frame go, in place of the Exit of their Transitions: those whose
+// Transition has an Exit, which are copied as they go. It suits an exit
+// decided as they leave, as a calendar, a wizard or a carousel stepping
+// forward or back, whose page going goes the way of the step that sent
+// it, even when the step turned around in the frame it went:
+//
+//	dir := float32(app.dir) // 1 forward, -1 back
+//	ui.Box(c).Fill().ChildExit(ui.Motion{X: -40 * dir}).Children(func() {
+//		ui.Column(c.Key(app.page)).Absolute().Fill().Transition(ui.ElementTransition{
+//			Enter: &ui.Motion{X: 40 * dir},
+//			Exit:  &ui.Motion{X: -40 * dir},
+//		})
+//	})
+//
+// Copies already on their way go on as they went.
+func (e *node) ChildExit(m Motion) *node {
+	c := e.c
+	for i := range c.childExits {
+		if c.childExits[i].e == e {
+			c.childExits[i].m = m
+			return e
+		}
+	}
+	c.childExits = append(c.childExits, childExit{e, m})
+	return e
+}
+
+// childExit is a call of ChildExit in the frame being built.
+type childExit struct {
+	e *node
+	m Motion
+}
+
+// childExit returns the Exit that p gave its children going in this
+// frame, if it gave one.
+func (c *context) childExit(p *node) (Motion, bool) {
+	for _, x := range c.childExits {
+		if x.e == p {
+			return x.m, true
+		}
+	}
+	return Motion{}, false
+}
+
 // transitionUse is a call of Transition in the frame being built.
 type transitionUse struct {
 	e *node
@@ -118,13 +192,16 @@ type transitionUse struct {
 }
 
 // tbox is what a transition moves: an element's place in its parent's
-// box, its size, its opacity, and the scale and rotation of a Motion.
-type tbox struct{ x, y, w, h, alpha, scale, rot float32 }
+// box, its size, its opacity, and the scale, rotation and blur of a
+// Motion.
+type tbox struct{ x, y, w, h, alpha, scale, rot, blur float32 }
 
 // vals returns the components of b, in the order of the channels.
-func (b tbox) vals() [7]float32 { return [7]float32{b.x, b.y, b.w, b.h, b.alpha, b.scale, b.rot} }
+func (b tbox) vals() [8]float32 {
+	return [8]float32{b.x, b.y, b.w, b.h, b.alpha, b.scale, b.rot, b.blur}
+}
 
-func boxOf(v [7]float32) tbox { return tbox{v[0], v[1], v[2], v[3], v[4], v[5], v[6]} }
+func boxOf(v [8]float32) tbox { return tbox{v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]} }
 
 // What a transition moves now.
 const (
@@ -135,8 +212,9 @@ const (
 	moveAll = movePos | moveSize | moveAlpha | moveTurn
 )
 
-// groupOf is what moves each channel of a transition.
-var groupOf = [7]uint8{movePos, movePos, moveSize, moveSize, moveAlpha, moveTurn, moveTurn}
+// groupOf is what moves each channel of a transition: a blur goes with
+// the opacity, as it moves nothing.
+var groupOf = [8]uint8{movePos, movePos, moveSize, moveSize, moveAlpha, moveTurn, moveTurn, moveAlpha}
 
 // The axes a Motion collapses an element along.
 const (
@@ -158,9 +236,12 @@ type transition struct {
 	// where it puts it in the frame being laid out, and shown where it
 	// shows: ch move the components of moving (movePos, …) there.
 	target, next, shown tbox
-	ch                  [7]channel
+	ch                  [8]channel
 	moving              uint8
 	fresh               bool
+	// held keeps the element appearing unseen while copies of its
+	// siblings leave (AfterExits).
+	held bool
 	// collapse is the axis a Motion collapses the element along, while it
 	// does.
 	collapse uint8
@@ -171,19 +252,20 @@ type transition struct {
 	colorMoving, colorSet              bool
 	colorFrame                         uint64
 	// ghost is the copy of the element going, which moves from gone,
-	// where it showed as it went; opacity is its own, and turn its
-	// transform then.
-	ghost   *node
-	gone    tbox
-	opacity float32
-	turn    Transform
+	// where it showed as it went; opacity and blur are its own, and turn
+	// its transform then.
+	ghost         *node
+	gone          tbox
+	opacity, blur float32
+	turn          Transform
 	// index is where the element was among its siblings in the frame it
 	// went from, which orders the copies going under one parent.
 	index int
-	// match moves an element appearing where the one it Matches showed:
-	// its box in the window, from the box that one had.
-	match    [4]channel
+	// matching moves an element appearing from where the one it Matches
+	// showed, and match is the record of its Match it had last
+	// (*matchRec, match.go), which apps without one do not link.
 	matching bool
+	match    any
 }
 
 // animation returns how the transition's changes go.
@@ -291,7 +373,7 @@ func (r *transition) rest(b tbox, now time.Time) {
 // The moves over, the transition no longer moves.
 func (r *transition) sample(target tbox, now time.Time) tbox {
 	to := target.vals()
-	var v [7]float32
+	var v [8]float32
 	var still uint8 = moveAll
 	for i := range r.ch {
 		ch := &r.ch[i]
@@ -341,14 +423,15 @@ func (r *transition) properties() uint8 {
 func lerp(a, b, k float32) float32 { return a + (b-a)*k }
 
 // moved returns b moved as m says, collapsed along axis, or, without
-// motion (still), only faded.
+// motion (still), only faded and blurred.
 func (b tbox) moved(m *Motion, axis uint8, still bool) tbox {
 	b.alpha = max(0, min(m.Opacity, 1))
+	b.blur = max(m.Blur, 0)
 	if still {
 		return b
 	}
-	b.x += m.X
-	b.y += m.Y
+	b.x += m.X + m.XPercent/100*b.w
+	b.y += m.Y + m.YPercent/100*b.h
 	if m.Scale != 0 {
 		b.scale = m.Scale
 	}
@@ -363,8 +446,9 @@ func (b tbox) moved(m *Motion, axis uint8, still bool) tbox {
 }
 
 // fades reports whether m makes an element appear or go even without
-// motion: it fades, and collapses nothing, which would move its siblings.
-func (m *Motion) fades() bool { return m.Opacity < 1 && !m.Collapse }
+// motion: it fades or blurs, and collapses nothing, which would move its
+// siblings.
+func (m *Motion) fades() bool { return (m.Opacity < 1 || m.Blur > 0) && !m.Collapse }
 
 // collapseAxis returns the axis a Motion collapses a child of parent along.
 func collapseAxis(m *Motion, parent *node) uint8 {
@@ -387,7 +471,7 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 	resized := w != rt.laidW || h != rt.laidH || rt.instant()
 	rt.laidW, rt.laidH = w, h
 	uses := c.transitions
-	rt.exitsBuilt = false
+	rt.exitsBuilt, rt.overlayExits = false, false
 	if len(uses) == 0 && len(rt.trans) == 0 {
 		return
 	}
@@ -424,7 +508,7 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 		}
 		r.fresh = r.laid+1 != rt.frame
 		r.t, r.elem, r.parent, r.built = u.t, e, e.parent.id, rt.frame
-		r.next = tbox{e.x, e.y, e.w, e.h, 1, 1, 0}
+		r.next = tbox{e.x, e.y, e.w, e.h, 1, 1, 0, 0}
 		if g := r.ghost; g != nil {
 			// Built again as a copy of it was going: it comes back from
 			// where the copy shows, as fast as it went.
@@ -432,29 +516,45 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 			r.head(r.next, moveAll, now)
 		}
 		e.st.trec = r
-		if u.t.Exit != nil {
+		if u.t.Exit != nil || u.t.Fly && u.t.Match != nil {
+			// The next frame copies it if it goes: to go as its Exit
+			// says, or to fly with the element taking its Match.
 			rt.exitsBuilt = true
+			if u.t.Exit != nil && e.parent == c.overlay {
+				rt.overlayExits = true
+			}
 		}
 		u.r = r
 		uses[n] = u
 		n++
 	}
+	holding := rt.holding[:0]
 	for _, u := range uses[:n] {
 		e, r := u.e, u.r
 		next := r.next
+		// An element appearing in a parent that was there comes in;
+		// whole new parts of the interface, as a page, appear at once.
+		// The overlay layer is the window's, though built only while it
+		// holds something: what appears in it comes in as in the root.
+		parent := e.parent
+		if parent == c.overlay {
+			parent = root
+		}
+		appears := r.fresh && !resized && e.st.born == rt.frame && parent.st.born != rt.frame
+		if r.held || appears && r.t.AfterExits {
+			// Unseen until the copies of its siblings are gone, which
+			// animateExits makes: then it comes in.
+			r.held = true
+			r.rest(next, now)
+			r.target, r.laid, r.shown = next, rt.frame, next
+			holding = append(holding, u)
+			continue
+		}
 		switch {
 		case r.fresh:
 			r.rest(next, now)
-			// An element appearing in a parent that was there comes in;
-			// whole new parts of the interface, as a page, appear at once.
-			if m := r.t.Enter; m != nil && (!still || m.fades()) && !resized && e.st.born == rt.frame && e.parent.st.born != rt.frame {
-				var axis uint8
-				if !still {
-					axis = collapseAxis(m, e.parent)
-				}
-				r.rest(next.moved(m, axis, still), now)
-				r.collapse = axis
-				r.head(next, moveAll, now)
+			if appears {
+				r.enter(e, next, still, now)
 			}
 		case resized || still && r.moving&^moveAlpha != 0:
 			r.rest(next, now)
@@ -479,95 +579,58 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 			}
 		}
 		r.target, r.laid = next, rt.frame
-		shown := next
-		if r.moving != 0 {
-			shown = r.sample(next, now)
-		}
-		if r.moving != 0 {
-			rt.animating = true
-		} else {
-			r.rest(next, now)
-		}
-		r.shown = shown
-		r.apply(e, shown)
+		rt.show(e, r, now)
+	}
+	if rt.matches != nil {
+		rt.matches.claim()
 	}
 	rt.animateExits(root, now, still, resized)
-}
-
-// matchRec is where the element of a Match showed in a frame, in the
-// window, and its colors.
-type matchRec struct {
-	frame, id uint64
-	box       Rect
-	colors    [2]Color
-}
-
-// animateMatches moves the elements of a Transition's Match appearing
-// from where the element of their Match showed in the frame before, by a
-// transform: once the frame's boxes are in the window.
-func (rt *engine) animateMatches() {
-	for m, rec := range rt.matched {
-		if rec.frame+1 < rt.frame {
-			delete(rt.matched, m)
-		}
-	}
-	now := rt.c.now
-	still := rt.preferences().ReduceMotion
-	for _, u := range rt.c.transitions {
-		m, e := u.t.Match, u.e
-		r := e.st.trec
-		if m == nil || r == nil || r.elem != e || r.built != rt.frame {
+	for _, u := range holding {
+		e, r := u.e, u.r
+		if e.parent.ghosts {
+			e.flags |= flagInvisible
 			continue
 		}
-		box := Rect{e.x, e.y, e.w, e.h}
-		rec := rt.matched[m]
-		switch {
-		case still || rt.instant():
-			r.matching = false
-		case r.fresh && rec != nil && rec.id != e.id && rec.frame+1 == rt.frame:
-			from := [4]float32{rec.box.X, rec.box.Y, rec.box.W, rec.box.H}
-			for i := range r.match {
-				r.match[i] = channel{value: float64(from[i]), target: float64(from[i]), at: now}
-			}
-			r.matching = true
-			if rec.colors != ([2]Color{}) {
-				// Its colors come from the other's too.
-				r.colorSet, r.colorTarget, r.colorShown, r.colorFrame = true, rec.colors, rec.colors, rt.frame-1
-			}
+		r.held = false
+		if !resized {
+			r.enter(e, r.next, still, now)
 		}
-		shown := box
-		if r.matching {
-			a := r.animation()
-			to := [4]float32{box.X, box.Y, box.W, box.H}
-			var v [4]float32
-			moving := false
-			for i := range r.match {
-				ch := &r.match[i]
-				headFor(ch, float64(to[i]), a, now)
-				ch.advance(now)
-				moving = moving || ch.moving || ch.pending
-				v[i] = float32(ch.value)
-			}
-			if !moving {
-				r.matching = false
-			} else {
-				shown = Rect{v[0], v[1], max(v[2], 0), max(v[3], 0)}
-				e.showAt(shown)
-				rt.animating = true
-			}
-		}
-		if rec == nil {
-			if rt.matched == nil {
-				rt.matched = map[any]*matchRec{}
-			}
-			rec = &matchRec{}
-			rt.matched[m] = rec
-		}
-		if rec.id != e.id {
-			rec.colors = [2]Color{}
-		}
-		rec.frame, rec.id, rec.box = rt.frame, e.id, shown
+		rt.show(e, r, now)
 	}
+	clear(holding)
+	rt.holding = holding[:0]
+}
+
+// enter brings e in from where its Enter says, to next, unless it has
+// none or, without motion (still), it would only move.
+func (r *transition) enter(e *node, next tbox, still bool, now time.Time) {
+	m := r.t.Enter
+	if m == nil || still && !m.fades() {
+		return
+	}
+	var axis uint8
+	if !still {
+		axis = collapseAxis(m, e.parent)
+	}
+	r.rest(next.moved(m, axis, still), now)
+	r.collapse = axis
+	r.head(next, moveAll, now)
+}
+
+// show shows e where r's channels have it now, on its way to r.target.
+func (rt *engine) show(e *node, r *transition, now time.Time) {
+	next := r.target
+	shown := next
+	if r.moving != 0 {
+		shown = r.sample(next, now)
+	}
+	if r.moving != 0 {
+		rt.animating = true
+	} else {
+		r.rest(next, now)
+	}
+	r.shown = shown
+	r.apply(e, shown)
 }
 
 // showAt shows e in the window's box r, its content laid out at r's size
@@ -616,11 +679,15 @@ func (c *context) byDepth(uses []transitionUse) []transitionUse {
 // apply shows e at s.
 func (r *transition) apply(e *node, s tbox) {
 	if s.w != e.w || s.h != e.h {
-		if r.collapse != 0 {
+		switch {
+		case r.collapse != 0:
 			// Collapsing: the content keeps its layout, clipped.
 			e.w, e.h = max(s.w, 0), max(s.h, 0)
 			e.flags |= flagClip
-		} else {
+		case r.t.ScaleContent && e.c.rt.matches != nil:
+			// Laid out at its size, and scaled to s.
+			e.c.rt.matches.scale(e, max(s.w, 0), max(s.h, 0))
+		default:
 			layoutBox(e, max(s.w, 0), max(s.h, 0))
 		}
 	}
@@ -635,7 +702,14 @@ func (r *transition) apply(e *node, s tbox) {
 	if t, ok := s.turn(); ok {
 		e.transform = e.transform.Then(t)
 	}
+	if s.blur > 0 {
+		e.blur = addBlur(e.blur, s.blur)
+	}
 }
+
+// addBlur returns the sigma of a blur by a after one by b, as Gaussians
+// compose.
+func addBlur(a, b float32) float32 { return float32(math.Hypot(float64(a), float64(b))) }
 
 // turn returns the transform of s's scale and rotation, unless it has
 // none.
@@ -656,7 +730,7 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 		if r.built == rt.frame {
 			continue
 		}
-		if r.ghost == nil && (r.t.Exit == nil || still && !r.t.Exit.fades() || instant && rt.instant() || r.laid+1 != rt.frame) {
+		if r.ghost == nil && (r.t.Exit == nil || r.held || instant && rt.instant() || r.laid+1 != rt.frame) {
 			delete(rt.trans, id)
 			continue
 		}
@@ -670,6 +744,14 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 			continue
 		}
 		if r.ghost == nil {
+			if m, ok := rt.c.childExit(p); ok {
+				// Its parent says where the children going now go.
+				r.t.Exit = &m
+			}
+			if still && !r.t.Exit.fades() {
+				delete(rt.trans, id)
+				continue
+			}
 			e := r.elem
 			r.ghost = ghostOf(e)
 			r.elem = nil
@@ -683,6 +765,8 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 				r.opacity = e.opacity / max(r.shown.alpha, 0.001)
 			}
 			r.turn = r.ghost.transform
+			// Its own blur, without its transition's.
+			r.blur = float32(math.Sqrt(max(0, float64(e.blur)*float64(e.blur)-float64(r.shown.blur)*float64(r.shown.blur))))
 			r.gone, r.collapse = r.shown, 0
 			if !still {
 				r.collapse = collapseAxis(r.t.Exit, p)
@@ -716,6 +800,9 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 		g.next = nil
 		p.add(g)
 		p.ghosts = true
+		if p == rt.c.overlay {
+			rt.overlayExits = true
+		}
 		layoutBox(g, r.gone.w, r.gone.h)
 		if s.w != r.gone.w || s.h != r.gone.h {
 			g.w, g.h = max(s.w, 0), max(s.h, 0)
@@ -726,6 +813,10 @@ func (rt *engine) animateExits(root *node, now time.Time, still, instant bool) {
 		g.transform = r.turn
 		if t, ok := s.turn(); ok {
 			g.transform = g.transform.Then(t)
+		}
+		g.blur = r.blur
+		if s.blur > 0 {
+			g.blur = addBlur(r.blur, s.blur)
 		}
 		r.shown = s
 		rt.animating = true
@@ -790,7 +881,8 @@ func ghostOf(e *node) *node {
 	g.track, g.popover, g.list, g.rowsOf, g.overflow = nil, nil, nil, nil, nil
 	g.activeDescendant, g.nameFrom, g.focusTo, g.field, g.form = nil, nil, nil, nil, nil
 	g.followX, g.colFit, g.gridFit = nil, nil, nil
-	g.inputFn, g.ghosts = nil, false
+	// It no longer flies (Fly), if it did: it goes as its parent's copy.
+	g.inputFn, g.ghosts, g.lift = nil, false, false
 	if g.themed != nil {
 		// The app may change its theme while the copy leaves.
 		t := *g.themed
@@ -842,13 +934,9 @@ func (rt *engine) animateColors(e *node, r *transition) {
 				r.colorMoving = false
 			} else {
 				k := max(0, min(float32(r.colorK.value), 1))
-				r.colorShown = [2]Color{mixPremultiplied(r.colorFrom[0], target[0], k), mixPremultiplied(r.colorFrom[1], target[1], k)}
+				lab := r.animation().Oklab
+				r.colorShown = [2]Color{mixPremultiplied(r.colorFrom[0], target[0], k, lab), mixPremultiplied(r.colorFrom[1], target[1], k, lab)}
 				rt.animating = true
-			}
-		}
-		if m := r.t.Match; m != nil {
-			if rec := rt.matched[m]; rec != nil && rec.id == e.id {
-				rec.colors = r.colorShown
 			}
 		}
 	}
@@ -866,16 +954,21 @@ func (rt *engine) forgetColors() {
 
 // mixPremultiplied returns the color k of the way from a to b, mixed with
 // premultiplied alpha, so that a color fading from transparent keeps its
-// hue.
-func mixPremultiplied(a, b Color, k float32) Color {
+// hue, in Oklab if lab (Animation.Oklab), else in sRGB.
+func mixPremultiplied(a, b Color, k float32, lab bool) Color {
 	aa, ba := float32(a.A)/255, float32(b.A)/255
 	alpha := lerp(aa, ba, k)
 	if alpha <= 0 {
 		return Color{}
 	}
-	if a.wide.ok() || b.wide.ok() {
+	if lab || a.wide.ok() || b.wide.ok() {
 		// Premultiplied, b weighs this much of the straight colors.
-		c := mixWide(a, b, k*ba/alpha)
+		var c Color
+		if lab {
+			c = mixLab(a, b, k*ba/alpha)
+		} else {
+			c = mixWide(a, b, k*ba/alpha)
+		}
 		c.A = alphaByte(alpha)
 		return c
 	}
