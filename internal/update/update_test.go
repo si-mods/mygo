@@ -7,9 +7,8 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"io"
-	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -107,91 +106,73 @@ func TestArchive(t *testing.T) {
 	}
 }
 
-// TestArchiveExecBits checks that programs keep exec bits that files made
-// on Windows lack: archives get them, and archives made without them
-// install with them.
+// TestArchiveExecBits checks the modes that archives and deltas give
+// files: their own, except on Windows, which has no exec bits, where
+// programs and scripts get 0o755.
 func TestArchiveExecBits(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no exec bits")
 	}
-	const elf, text = "\x7fELF program", "text"
 	src := t.TempDir()
-	os.WriteFile(filepath.Join(src, "app"), []byte(elf), 0o644)
-	os.WriteFile(filepath.Join(src, "notes.txt"), []byte(text), 0o644)
-	var buf bytes.Buffer
-	if err := WriteArchive(&buf, src, []string{"app", "notes.txt"}); err != nil {
-		t.Fatal(err)
-	}
-	gz, err := gzip.NewReader(&buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	modes := map[string]int64{}
-	for tr := tar.NewReader(gz); ; {
-		hdr, err := tr.Next()
-		if err != nil {
-			break
+	files := map[string]string{"elf": "\x7fELF program", "macho": "\xcf\xfa\xed\xfe program", "script": "#!/bin/sh\n", "data": "text"}
+	var names []string
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
 		}
-		modes[hdr.Name] = hdr.Mode
+		names = append(names, name)
 	}
-	if modes["app"] != 0o755 || modes["notes.txt"] != 0o644 {
-		t.Errorf("archive modes = %v", modes)
+	modes := func() (archived, delta map[string]int64) {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := WriteArchive(&buf, src, names); err != nil {
+			t.Fatal(err)
+		}
+		gz, err := gzip.NewReader(&buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		archived = map[string]int64{}
+		for tr := tar.NewReader(gz); ; {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			archived[hdr.Name] = hdr.Mode
+		}
+		buf.Reset()
+		if err := WriteDelta(&buf, "1", "2", t.TempDir(), src, names); err != nil {
+			t.Fatal(err)
+		}
+		out := filepath.Join(t.TempDir(), "app")
+		if err := ApplyDelta(bytes.NewReader(buf.Bytes()), int64(buf.Len()), "1", "2", t.TempDir(), out); err != nil {
+			t.Fatal(err)
+		}
+		delta = map[string]int64{}
+		for _, name := range names {
+			info, err := os.Stat(filepath.Join(out, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			delta[name] = int64(info.Mode().Perm())
+		}
+		return archived, delta
 	}
 
-	// An archive made on Windows, with every file 0666.
-	buf.Reset()
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
-	for name, content := range map[string]string{"app": elf, "notes.txt": text} {
-		tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: name, Mode: 0o666, Size: int64(len(content))})
-		tw.Write([]byte(content))
-	}
-	tw.Close()
-	gw.Close()
-	dst := t.TempDir()
-	if err := ExtractArchive(&buf, dst); err != nil {
-		t.Fatal(err)
-	}
-	if info, err := os.Stat(filepath.Join(dst, "app")); err != nil || info.Mode().Perm() != 0o755 {
-		t.Errorf("app installed as %v, %v", info.Mode(), err)
-	}
-	if info, err := os.Stat(filepath.Join(dst, "notes.txt")); err != nil || info.Mode().Perm()&0o111 != 0 {
-		t.Errorf("notes.txt installed as %v, %v", info.Mode(), err)
+	// Elsewhere, a library without exec bits keeps its mode.
+	all644 := map[string]int64{"elf": 0o644, "macho": 0o644, "script": 0o644, "data": 0o644}
+	if archived, delta := modes(); !maps.Equal(archived, all644) || !maps.Equal(delta, all644) {
+		t.Errorf("modes: archive %v, delta %v", archived, delta)
 	}
 
-	// Deltas get them too.
-	var delta bytes.Buffer
-	if err := WriteDelta(&delta, "1", "2", t.TempDir(), src, nil); err != nil {
-		t.Fatal(err)
-	}
-	out := filepath.Join(t.TempDir(), "app")
-	if err := ApplyDelta(bytes.NewReader(delta.Bytes()), int64(delta.Len()), "1", "2", t.TempDir(), out); err != nil {
-		t.Fatal(err)
-	}
-	if info, err := os.Stat(filepath.Join(out, "app")); err != nil || info.Mode().Perm() != 0o755 {
-		t.Errorf("the delta made app %v, %v", info.Mode(), err)
-	}
-
-	// A delta made on Windows.
-	old, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer old.Close()
-	dir := t.TempDir()
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer root.Close()
-	data := deflate([]byte(elf))
-	sum := sha256.Sum256([]byte(elf))
-	e := deltaEntry{Path: "app", Mode: 0o666, Size: int64(len(elf)), SHA256: hex.EncodeToString(sum[:]), Data: int64(len(data))}
-	if err := applyFile(e, io.NewSectionReader(bytes.NewReader(data), 0, int64(len(data))), old, root); err != nil {
-		t.Fatal(err)
-	}
-	if info, err := os.Stat(filepath.Join(dir, "app")); err != nil || info.Mode().Perm() != fs.FileMode(0o755) {
-		t.Errorf("the delta made app %v, %v", info.Mode(), err)
+	windowsHost = true
+	defer func() { windowsHost = false }()
+	want := map[string]int64{"elf": 0o755, "macho": 0o755, "script": 0o755, "data": 0o644}
+	if archived, delta := modes(); !maps.Equal(archived, want) || !maps.Equal(delta, want) {
+		t.Errorf("modes on Windows: archive %v, delta %v", archived, delta)
 	}
 }
 

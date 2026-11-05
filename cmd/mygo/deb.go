@@ -142,7 +142,7 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 					return err
 				}
 				mode := int64(0o644)
-				if update.Perm(info.Mode().Perm(), b)&0o111 != 0 {
+				if update.Perm(info, b)&0o111 != 0 {
 					mode = 0o755
 				}
 				data.file(target, b, mode)

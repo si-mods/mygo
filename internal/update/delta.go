@@ -145,7 +145,7 @@ func WriteDelta(w io.Writer, from, to, oldDir, newDir string, entries []string) 
 					return err
 				}
 				sum := sha256.Sum256(b)
-				e.Mode, e.Size, e.SHA256 = uint32(Perm(info.Mode().Perm(), b)), int64(len(b)), hex.EncodeToString(sum[:])
+				e.Mode, e.Size, e.SHA256 = uint32(Perm(info, b)), int64(len(b)), hex.EncodeToString(sum[:])
 				o := old[e.Path]
 				if o.sum == e.SHA256 {
 					e.From = e.Path
@@ -291,8 +291,7 @@ func ApplyDelta(r io.ReaderAt, size int64, from, to, oldDir, newDir string) erro
 
 // applyFile makes the file of e from data, its data in the delta.
 func applyFile(e deltaEntry, data *io.SectionReader, oldRoot, newRoot *os.Root) error {
-	perm := fs.FileMode(e.Mode).Perm()
-	f, err := newRoot.OpenFile(filepath.FromSlash(e.Path), os.O_CREATE|os.O_EXCL|os.O_RDWR, perm|0o200)
+	f, err := newRoot.OpenFile(filepath.FromSlash(e.Path), os.O_CREATE|os.O_EXCL|os.O_WRONLY, fs.FileMode(e.Mode).Perm()|0o200)
 	if err != nil {
 		return err
 	}
@@ -317,9 +316,6 @@ func applyFile(e deltaEntry, data *io.SectionReader, oldRoot, newRoot *os.Root) 
 		default:
 			err = Patch(out, e.Size, src, info.Size(), data, e.Data)
 		}
-	}
-	if err == nil {
-		err = markExecutable(f, perm)
 	}
 	if err == nil {
 		err = f.Close()

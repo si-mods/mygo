@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -214,11 +215,9 @@ func WriteArchive(w io.Writer, dir string, entries []string) error {
 				return err
 			}
 			defer f.Close()
-			var head [4]byte
-			n, _ := f.ReadAt(head[:], 0)
-			if mode := Perm(info.Mode().Perm(), head[:n]); mode != info.Mode().Perm() {
-				hdr.Mode = int64(mode)
-			}
+			head := make([]byte, 4)
+			n, _ := f.ReadAt(head, 0)
+			hdr.Mode = hdr.Mode&^0o777 | int64(Perm(info, head[:n]))
 			if err := tw.WriteHeader(hdr); err != nil {
 				return err
 			}
@@ -233,6 +232,23 @@ func WriteArchive(w io.Writer, dir string, entries []string) error {
 		return err
 	}
 	return gz.Close()
+}
+
+// windowsHost is whether files come from Windows, which has no exec bits.
+var windowsHost = runtime.GOOS == "windows"
+
+// Perm returns the permissions to package the file of info with, whose
+// content starts with head: its own, except on Windows, which has no exec
+// bits, where programs (ELF, 64-bit Mach-O) and scripts (#!) get 0o755.
+func Perm(info fs.FileInfo, head []byte) fs.FileMode {
+	if windowsHost {
+		for _, magic := range []string{"\x7fELF", "\xcf\xfa\xed\xfe", "#!"} {
+			if bytes.HasPrefix(head, []byte(magic)) {
+				return 0o755
+			}
+		}
+	}
+	return info.Mode().Perm()
 }
 
 // ExtractArchive unpacks an archive of WriteArchive into dir. It refuses
@@ -268,14 +284,11 @@ func ExtractArchive(r io.Reader, dir string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, mode|0o200)
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode|0o200)
 			if err != nil {
 				return err
 			}
 			_, err = io.Copy(f, tr)
-			if err == nil {
-				err = markExecutable(f, mode)
-			}
 			if cerr := f.Close(); err == nil {
 				err = cerr
 			}
@@ -297,30 +310,6 @@ func ExtractArchive(r io.Reader, dir string) error {
 			return fmt.Errorf("unsupported entry in update archive: %q", hdr.Name)
 		}
 	}
-}
-
-// Perm returns perm, the permissions of a file whose content starts with
-// head, or 0o755 when the file is a program or library of Linux or macOS
-// (ELF or Mach-O) without exec bits: Windows has none, so its files are
-// 0666, and an app that mygo build made there for Linux would not run.
-func Perm(perm fs.FileMode, head []byte) fs.FileMode {
-	if perm&0o111 == 0 && (bytes.HasPrefix(head, []byte("\x7fELF")) ||
-		bytes.HasPrefix(head, []byte{0xcf, 0xfa, 0xed, 0xfe}) || // Mach-O, 64-bit
-		bytes.HasPrefix(head, []byte{0xca, 0xfe, 0xba, 0xbe})) { // universal binary
-		return 0o755
-	}
-	return perm
-}
-
-// markExecutable gives f, a file just written with perm, the permissions
-// Perm returns, for the archives already made without exec bits.
-func markExecutable(f *os.File, perm fs.FileMode) error {
-	var head [4]byte
-	n, _ := f.ReadAt(head[:], 0)
-	if mode := Perm(perm, head[:n]); mode != perm {
-		return f.Chmod(mode)
-	}
-	return nil
 }
 
 // ReleaseNotes returns the section of a Markdown changelog under the

@@ -229,10 +229,30 @@ func (up *Update) Install(ctx context.Context, progress func(downloaded, total i
 		return fmt.Errorf("mygo: installing the update: %w", err)
 	}
 	if runtime.GOOS == "linux" {
+		if err := makeExecutable(startExe); err != nil {
+			return fmt.Errorf("mygo: installing the update: %w", err)
+		}
 		// install.sh registered the desktop entry of the version it installed.
 		if err := update.RefreshDesktopEntry(target, filepath.Base(startExe)); err != nil {
 			log.Printf("mygo: registering the desktop entry of the update: %v", err)
 		}
+	}
+	return nil
+}
+
+// makeExecutable gives exe, the app's executable, exec bits where it has
+// read bits when it has none: archives built on Windows, before mygo build
+// set them, had none.
+func makeExecutable(exe string) error {
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	info, err := os.Stat(exe)
+	if err != nil {
+		return err
+	}
+	if perm := info.Mode().Perm(); perm&0o111 == 0 {
+		return os.Chmod(exe, perm|(perm&0o444)>>2)
 	}
 	return nil
 }
