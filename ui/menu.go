@@ -298,7 +298,7 @@ type menuState struct {
 	// the menu key or Shift+F10, or a menu button's for its keys; below
 	// when a menu button's opens below the button itself, rather than
 	// from a toolbar's overflow menu.
-	button, chosenButton, key, below bool
+	button, chosenButton, key, last, below bool
 	// release is the element whose menu opens when the secondary button
 	// goes up, as on Windows, on the text releaseText.
 	release, releaseText uint64
@@ -337,14 +337,15 @@ type shownMenu struct {
 
 // menuAt is where and how a menu drawn opens, as asked for.
 type menuAt struct {
-	x, y       float32
-	text       uint64
-	key, below bool
+	x, y             float32
+	text             uint64
+	key, below, last bool
 }
 
 // at returns what the menu asked for now asks, for a drawn menu to keep.
+// last is set when Up opens a menu button on its last item.
 func (mr *menuState) at() menuAt {
-	return menuAt{x: mr.x, y: mr.y, text: mr.text, key: mr.key, below: mr.below}
+	return menuAt{x: mr.x, y: mr.y, text: mr.text, key: mr.key, below: mr.below, last: mr.last}
 }
 
 // textMenu returns the element whose context menu opens on the text input
@@ -393,7 +394,7 @@ func (rt *engine) textAround(chain []uint64, s *state) *state {
 // focus.
 func (rt *engine) askMenu(s *state, x, y float32, button bool) {
 	mr := &rt.menu
-	mr.asked, mr.x, mr.y, mr.button, mr.text, mr.key, mr.below = s.id, x, y, button, 0, false, false
+	mr.asked, mr.x, mr.y, mr.button, mr.text, mr.key, mr.last, mr.below = s.id, x, y, button, 0, false, false, false
 	// The menu takes the press: the release goes to it.
 	if rt.pressed != nil {
 		rt.pressed.pressed = false
@@ -511,6 +512,13 @@ func (rt *engine) openMenuButton(s *state, key bool) {
 	x, y := s.menuCorner()
 	rt.askMenu(s, x, y, true)
 	rt.menu.key, rt.menu.below = key, true
+}
+
+// openMenuButtonOnLast opens the menu of menu button s from the keyboard
+// on its last item that can be chosen, as the Up key does.
+func (rt *engine) openMenuButtonOnLast(s *state) {
+	rt.openMenuButton(s, true)
+	rt.menu.last = true
 }
 
 // menuCorner returns where the menu of a button goes: at its bottom left

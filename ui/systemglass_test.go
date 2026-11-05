@@ -16,15 +16,15 @@ var glassWindows = map[*headless]*glassLog{}
 // list the frames sent, and, as each came, whether the frame the window
 // showed had a hole at the middle of each of its placements.
 type glassLog struct {
-	sent  [][]platform.GlassPlacement
+	sent  [][]platform.SystemGlassPlacement
 	shown [][]bool
 }
 
-func (h *headless) supportsGlass() bool { return glassWindows[h] != nil }
+func (h *headless) supportsSystemGlass() bool { return glassWindows[h] != nil }
 
-func (h *headless) placeGlass(glass []platform.GlassPlacement) {
+func (h *headless) placeSystemGlass(glass []platform.SystemGlassPlacement) {
 	if l := glassWindows[h]; l != nil {
-		l.sent = append(l.sent, append([]platform.GlassPlacement(nil), glass...))
+		l.sent = append(l.sent, append([]platform.SystemGlassPlacement(nil), glass...))
 		img := h.image()
 		var shown []bool
 		for _, g := range glass {
@@ -46,7 +46,7 @@ func withSystemGlass(t *testing.T, tt *Tester) *glassLog {
 }
 
 // last returns what the window shows of the glass: the list sent last.
-func (l *glassLog) last() []platform.GlassPlacement {
+func (l *glassLog) last() []platform.SystemGlassPlacement {
 	if len(l.sent) == 0 {
 		return nil
 	}
@@ -82,7 +82,7 @@ func TestSystemGlassFallback(t *testing.T) {
 	if n == 0 {
 		t.Fatal("the fallback was not painted")
 	}
-	if len(holes(tt)) != 0 || len(tt.rt.glassPlaces) != 0 {
+	if len(holes(tt)) != 0 || len(tt.rt.systemGlassPlaces) != 0 {
 		t.Error("the fallback paints a hole or places the system's glass")
 	}
 	o := tt.Image().PixOffset(50, 30)
@@ -121,7 +121,7 @@ func TestSystemGlassPlacement(t *testing.T) {
 		t.Error("the fallback paints where the system's glass shows")
 	}
 	got := l.last()
-	want := platform.GlassPlacement{
+	want := platform.SystemGlassPlacement{
 		Frame: platform.RectF{X: 10, Y: 20, W: 100, H: 40}, Clip: platform.RectF{X: 10, Y: 20, W: 100, H: 40},
 		Radius: 16.5, Clear: true, Tint: platform.Color{R: 29, G: 29, B: 29, A: 64}, Opacity: 0.5,
 	}
@@ -210,9 +210,9 @@ func TestSystemGlassMovesWithItsFrame(t *testing.T) {
 		})
 	}, 200, 100)
 	l := withSystemGlass(t, tt)
-	at := func(y float64) platform.GlassPlacement {
+	at := func(y float64) platform.SystemGlassPlacement {
 		r := platform.RectF{X: 10, Y: y, W: 100, H: 32}
-		return platform.GlassPlacement{Frame: r, Clip: r, Radius: 16, Opacity: 1}
+		return platform.SystemGlassPlacement{Frame: r, Clip: r, Radius: 16, Opacity: 1}
 	}
 	// holesShown reports whether the window showed the holes of the i-th
 	// list sent, and only those, as it came: what the frame presented

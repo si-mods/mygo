@@ -5,27 +5,28 @@ package darwin
 import "github.com/egoist/mygo/internal/platform"
 
 // The system's Liquid Glass in a window of native UI (ui.SystemGlass,
-// platform.GlassSurface): an NSGlassEffectView in a clip view, a subview
-// of the window's content view under the surface and its web views, over
-// the window's material. The content paints a hole where it shows it, so
-// what it paints after the glass shows over it. A frame's glass reuses the
-// views of the last one in paint order, the first at the bottom; those it
-// leaves hide.
+// platform.SystemGlassSurface): an NSGlassEffectView in a clip view, a
+// subview of the window's content view under the surface and its web
+// views, over the window's material. The content paints a hole where it
+// shows it, so what it paints after the glass shows over it. A frame's
+// glass reuses the views of the last one in paint order, the first at the
+// bottom; those it leaves hide. The panes Glass{Native: true} places
+// (surface.glass) sit above web views and are not these.
 
-// glassView is one pane of the system's glass: the NSGlassEffectView and
+// systemGlassView is one pane of ui.SystemGlass: the NSGlassEffectView and
 // the clip view around it, which shows the part of it the content shows.
-type glassView struct {
+type systemGlassView struct {
 	clip, glass id
-	shown       platform.GlassPlacement
+	shown       platform.SystemGlassPlacement
 	hidden      bool
 }
 
 // SupportsGlass reports whether AppKit has NSGlassEffectView: from macOS 26.
 func (s *surface) SupportsGlass() bool { return hasClass("NSGlassEffectView") }
 
-// PlaceGlass shows the system's glass where the content's last frame
+// PlaceSystemGlass shows ui.SystemGlass where the content's last frame
 // painted it, and hides the panes it no longer paints.
-func (s *surface) PlaceGlass(list []platform.GlassPlacement) {
+func (s *surface) PlaceSystemGlass(list []platform.SystemGlassPlacement) {
 	host := s.w
 	if host.closed || !s.SupportsGlass() {
 		return
@@ -33,13 +34,13 @@ func (s *surface) PlaceGlass(list []platform.GlassPlacement) {
 	height := msgRect(host.view, sel("bounds")).Size.Height
 	withPool(func() {
 		for i, p := range list {
-			if i == len(s.glass) {
-				s.glass = append(s.glass, s.newGlassView())
+			if i == len(s.systemGlass) {
+				s.systemGlass = append(s.systemGlass, s.newSystemGlassView())
 			}
-			s.glass[i].place(p, height)
+			s.systemGlass[i].place(p, height)
 		}
-		for i := len(list); i < len(s.glass); i++ {
-			if v := &s.glass[i]; !v.hidden {
+		for i := len(list); i < len(s.systemGlass); i++ {
+			if v := &s.systemGlass[i]; !v.hidden {
 				send(v.clip, "setHidden:", 1)
 				v.hidden = true
 			}
@@ -47,9 +48,9 @@ func (s *surface) PlaceGlass(list []platform.GlassPlacement) {
 	})
 }
 
-// newGlassView makes a pane of glass, hidden, over those made before it.
-func (s *surface) newGlassView() glassView {
-	v := glassView{hidden: true}
+// newSystemGlassView makes a pane of glass, hidden, over those made before it.
+func (s *surface) newSystemGlassView() systemGlassView {
+	v := systemGlassView{hidden: true}
 	v.clip = msgInitRect(send(class("MyGoClipView"), "alloc"), sel("initWithFrame:"), NSRect{})
 	send(v.clip, "setWantsLayer:", 1)
 	send(v.clip, "setAutoresizingMask:", nsViewMinYMargin)
@@ -58,8 +59,8 @@ func (s *surface) newGlassView() glassView {
 	send(v.clip, "addSubview:", uintptr(v.glass))
 	view := s.w.view
 	switch {
-	case len(s.glass) > 0:
-		send(view, "addSubview:positioned:relativeTo:", uintptr(v.clip), nsWindowAbove, uintptr(s.glass[len(s.glass)-1].clip))
+	case len(s.systemGlass) > 0:
+		send(view, "addSubview:positioned:relativeTo:", uintptr(v.clip), nsWindowAbove, uintptr(s.systemGlass[len(s.systemGlass)-1].clip))
 	case s.w.effect != 0:
 		send(view, "addSubview:positioned:relativeTo:", uintptr(v.clip), nsWindowAbove, uintptr(s.w.effect))
 	default:
@@ -73,7 +74,7 @@ const nsWindowAbove = 1
 
 // place shows the pane as p tells, in a content view height points tall,
 // changing what changed since it was last placed.
-func (v *glassView) place(p platform.GlassPlacement, height float64) {
+func (v *systemGlassView) place(p platform.SystemGlassPlacement, height float64) {
 	old := v.shown
 	if v.hidden || p.Clip != old.Clip {
 		c := p.Clip
@@ -113,12 +114,12 @@ func (v *glassView) place(p platform.GlassPlacement, height float64) {
 	v.shown = p
 }
 
-// destroyGlass takes the panes of glass out of the window.
-func (s *surface) destroyGlass() {
-	for _, v := range s.glass {
+// destroySystemGlass takes the panes of ui.SystemGlass out of the window.
+func (s *surface) destroySystemGlass() {
+	for _, v := range s.systemGlass {
 		send(v.clip, "removeFromSuperview")
 		release(v.glass)
 		release(v.clip)
 	}
-	s.glass = nil
+	s.systemGlass = nil
 }
