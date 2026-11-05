@@ -101,10 +101,12 @@ func (g SystemGlass) String() string {
 	return s
 }
 
-// glassHost is a host whose window can show the system's glass.
-type glassHost interface {
-	supportsGlass() bool
-	placeGlass(glass []platform.GlassPlacement)
+// systemGlassHost is a host whose window can show ui.SystemGlass, under
+// web views. It is separate from the host's placeGlass, which places
+// native panes above web views (Glass{Native: true}).
+type systemGlassHost interface {
+	supportsSystemGlass() bool
+	placeSystemGlass(glass []platform.SystemGlassPlacement)
 }
 
 // systemGlassShows reports whether the glass the painter paints shows as
@@ -114,8 +116,8 @@ func (p *Painter) systemGlassShows() bool {
 	if p.s != &p.rt.scene || p.drawing {
 		return false
 	}
-	h, ok := p.rt.host.(glassHost)
-	return ok && h.supportsGlass()
+	h, ok := p.rt.host.(systemGlassHost)
+	return ok && h.supportsSystemGlass()
 }
 
 // systemGlass paints the hole the system's glass shows through, and notes
@@ -145,7 +147,7 @@ func (p *Painter) systemGlass(box Rect, radii [4]float32, g SystemGlass) {
 		radius *= float32(math.Sqrt(math.Abs(float64(t.A*t.D - t.B*t.C))))
 	}
 	rt := p.rt
-	rt.glassPlaces = append(rt.glassPlaces, platform.GlassPlacement{
+	rt.systemGlassPlaces = append(rt.systemGlassPlaces, platform.SystemGlassPlacement{
 		Frame:   rt.toWindow(rectF(b)),
 		Clip:    rt.toWindow(rectF(c)),
 		Radius:  float64(radius) * float64(rt.zoomFactor()),
@@ -155,33 +157,34 @@ func (p *Painter) systemGlass(box Rect, radii [4]float32, g SystemGlass) {
 	})
 }
 
-// sendGlass is sendSystemGlass once a view painted the system's glass.
-var sendGlass func(rt *engine, glass []platform.GlassPlacement)
+// sendGlass is sendSystemGlass once a view painted ui.SystemGlass.
+var sendGlass func(rt *engine, glass []platform.SystemGlassPlacement)
 
-func sendSystemGlass(rt *engine, glass []platform.GlassPlacement) {
-	if h, ok := rt.host.(glassHost); ok {
-		h.placeGlass(glass)
+func sendSystemGlass(rt *engine, glass []platform.SystemGlassPlacement) {
+	if h, ok := rt.host.(systemGlassHost); ok {
+		h.placeSystemGlass(glass)
 	}
 }
 
-// placeGlass tells the host where the frame painted the system's glass,
+// placeSystemGlass tells the host where the frame painted ui.SystemGlass,
 // unless it is where the last frame sent did: it hides the glass no frame
-// paints any longer.
-func (rt *engine) placeGlass() {
-	if sendGlass == nil || slices.Equal(rt.glassPlaces, rt.glassSent) {
+// paints any longer. The call goes through sendGlass, set by
+// PaintMaterial, so apps that paint none do not link the surface's side.
+func (rt *engine) placeSystemGlass() {
+	if sendGlass == nil || slices.Equal(rt.systemGlassPlaces, rt.systemGlassSent) {
 		return
 	}
-	rt.glassSent = append(rt.glassSent[:0], rt.glassPlaces...)
-	sendGlass(rt, rt.glassSent)
+	rt.systemGlassSent = append(rt.systemGlassSent[:0], rt.systemGlassPlaces...)
+	sendGlass(rt, rt.systemGlassSent)
 }
 
-func (h *windowHost) supportsGlass() bool {
-	s, ok := h.conn.Surface.(platform.GlassSurface)
+func (h *windowHost) supportsSystemGlass() bool {
+	s, ok := h.conn.Surface.(platform.SystemGlassSurface)
 	return ok && s.SupportsGlass()
 }
 
-func (h *windowHost) placeGlass(glass []platform.GlassPlacement) {
-	if s, ok := h.conn.Surface.(platform.GlassSurface); ok {
-		s.PlaceGlass(glass)
+func (h *windowHost) placeSystemGlass(glass []platform.SystemGlassPlacement) {
+	if s, ok := h.conn.Surface.(platform.SystemGlassSurface); ok {
+		s.PlaceSystemGlass(glass)
 	}
 }

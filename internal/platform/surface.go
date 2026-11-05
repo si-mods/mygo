@@ -81,6 +81,36 @@ type WideGamutSurface interface {
 	WideGamut() bool
 }
 
+// GlassPlacement is where a surface shows the system's glass
+// (Surface.PlaceGlass), under its content, in DIPs from its top left.
+type GlassPlacement struct {
+	// ID identifies the element showing the glass from one frame to the
+	// next.
+	ID uint64
+	// Frame is the glass's box; Clip the part of it that shows.
+	Frame, Clip RectF
+	// Radii are the corners of the hole the content leaves, clockwise
+	// from the top left, and CornerRadius the one the glass view takes,
+	// where it takes one.
+	Radii        [4]float64
+	CornerRadius float64
+	// Style is NSGlassEffectView's style: 0 regular, 1 clear.
+	Style int
+	// Tint colors the glass, nil for none.
+	Tint *Color
+}
+
+// GlassSurface is a Surface that draws the system's glass under its
+// content, as macOS 26's NSGlassEffectView does, where the content leaves a
+// hole.
+type GlassSurface interface {
+	// NativeGlassSupported reports whether the system's glass is available.
+	NativeGlassSupported() bool
+	// PlaceGlass shows the glass where the content's last frame shows it,
+	// and hides the rest.
+	PlaceGlass(places []GlassPlacement)
+}
+
 // MaterialSurface is a Surface whose window can show a material
 // (vibrancy) behind the content, wherever its frames are transparent.
 type MaterialSurface interface {
@@ -90,23 +120,24 @@ type MaterialSurface interface {
 	ShowsMaterial() bool
 }
 
-// GlassSurface is a Surface whose window can show the system's own Liquid
-// Glass under its content, as macOS 26's NSGlassEffectView: package ui
-// paints a hole through its frame where it shows (ui.SystemGlass), and the
-// glass sits under the frame, over the window's material. Package ui
-// reaches it only once a view paints such glass, for apps that paint none
-// not to link it.
-type GlassSurface interface {
+// SystemGlassSurface is a Surface whose window can show the system's own
+// Liquid Glass under its content and under its web views, as macOS 26's
+// NSGlassEffectView: package ui paints a hole through its frame where it
+// shows (ui.SystemGlass), and the glass sits under the frame, over the
+// window's material. It is separate from GlassSurface, whose panes sit
+// above web views. Package ui reaches it only once a view paints such
+// glass, for apps that paint none not to link it.
+type SystemGlassSurface interface {
 	// SupportsGlass reports whether the window can show the glass now.
 	SupportsGlass() bool
-	// PlaceGlass shows the glass where the content's last frame painted
-	// it, in the order it painted it, and hides the rest.
-	PlaceGlass(glass []GlassPlacement)
+	// PlaceSystemGlass shows the glass where the content's last frame
+	// painted it, in the order it painted it, and hides the rest.
+	PlaceSystemGlass(glass []SystemGlassPlacement)
 }
 
-// GlassPlacement is where a frame shows the system's glass, in DIPs from
+// SystemGlassPlacement is where a frame shows ui.SystemGlass, in DIPs from
 // the top-left corner of the content.
-type GlassPlacement struct {
+type SystemGlassPlacement struct {
 	// Frame is the glass's box; Clip the part of it that shows, which the
 	// frame leaves transparent.
 	Frame, Clip RectF

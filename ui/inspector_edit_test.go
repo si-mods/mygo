@@ -261,6 +261,7 @@ func TestSetStyleRoundTripsOwnStyles(t *testing.T) {
 		{"font-weight", "600"},
 		{"line-height", "18px"},
 		{"text-decoration", "underline line-through"},
+		{"z-index", "-2"},
 	} {
 		var decls []inspDecl
 		understood := false
@@ -284,7 +285,7 @@ func TestSetStyleRoundTripsOwnStyles(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, value string }{
 		{"width", "wide"}, {"padding", "1 2 3 4 5"}, {"opacity", "much"}, {"color", "#12"},
-		{"nonsense", "1"}, {"box-shadow", "1px"}, {"font-size", "-1"},
+		{"nonsense", "1"}, {"box-shadow", "1px"}, {"font-size", "-1"}, {"z-index", "1.5"},
 	} {
 		if setStyle(&node{}, tc.name, tc.value) {
 			t.Errorf("setStyle understood %s: %s", tc.name, tc.value)
@@ -402,6 +403,8 @@ func TestGoCallsAreElementMethods(t *testing.T) {
 		{"min-height", "1%", ".MinHeightPercent(1)"},
 		{"max-width", "1", ".MaxWidth(1)"},
 		{"max-height", "1%", ".MaxHeightPercent(1)"},
+		{"max-width", "min(78%, 544px)", ".MaxWidthPercent(78).MaxWidth(544)"},
+		{"min-width", "max(20px, 10%)", ".MinWidthPercent(10).MinWidth(20)"},
 		{"flex-basis", "1%", ".BasisPercent(1)"},
 		{"top", "1", ".Top(1)"},
 		{"right", "1", ".Right(1)"},
@@ -423,6 +426,7 @@ func TestGoCallsAreElementMethods(t *testing.T) {
 		{"background", "transparent", ".Background(ui.Transparent)"},
 		{"box-shadow", "1 2 3 4 #000000", `.Shadow(1, 2, 3, 4, ui.Hex("#000000"))`},
 		{"box-shadow", "inset 1 2 #000000", `.InsetShadow(1, 2, 0, 0, ui.Hex("#000000"))`},
+		{"box-shadow", "none", ".NoShadow()"},
 		{"opacity", "50%", ".Opacity(0.5)"},
 		{"visibility", "hidden", ".Invisible()"},
 		{"display", "none", ".Hidden(true)"},
@@ -441,6 +445,8 @@ func TestGoCallsAreElementMethods(t *testing.T) {
 		{"selection-color", "#000", `.SelectionColor(ui.Hex("#000000"))`},
 		{"line-clamp", "2", ".MaxLines(2)"},
 		{"white-space", "nowrap", ".NoWrap()"},
+		{"z-index", "3", ".ZIndex(3)"},
+		{"z-index", "auto", ".ZIndex(0)"},
 	} {
 		code := strings.Join(goCalls(tc.name, tc.value), "")
 		if tc.want != "" && code != tc.want {
@@ -459,5 +465,99 @@ func TestGoCallsAreElementMethods(t *testing.T) {
 	c := Oklch(0.7, 0.3, 150).Alpha(0.5)
 	if got := goColor(c); !strings.HasPrefix(got, "ui.Oklch(0.") || !strings.HasSuffix(got, ").Alpha(0.5)") {
 		t.Errorf("a wide color is %q", got)
+	}
+}
+
+func TestInspectorForcesStates(t *testing.T) {
+	var hovered, pressed, focused, visible, within bool
+	tt, _ := inspected(func(c *context) {
+		coreColumn(c).Padding(20).Children(func() {
+			b := coreBox(c).Key("box").Size(40, 40).Focusable()
+			hovered, pressed = b.Hovered(), b.Pressed()
+			focused, visible, within = b.Focused(), b.FocusVisible(), b.FocusWithin()
+		})
+	})
+	openInspector(tt)
+	e := chooseKeyed(t, tt, "box")
+	if hovered || pressed || focused || visible || within {
+		t.Fatal("the box starts in a state")
+	}
+	if tt.HasText(":hover") {
+		t.Errorf("the bar shows before it opens: %q", tt.Texts())
+	}
+	if err := tt.Click(":hov"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []struct {
+		name string
+		on   *bool
+	}{{":hover", &hovered}, {":active", &pressed}, {":focus", &focused}, {":focus-visible", &visible}, {":focus-within", &within}} {
+		if err := tt.Click(s.name); err != nil {
+			t.Fatalf("%v: %q", err, tt.Texts())
+		}
+		if !*s.on {
+			t.Errorf("%s does not reach the view", s.name)
+		}
+		if !tt.HasText(s.name) {
+			t.Errorf("%s does not show: %q", s.name, tt.Texts())
+		}
+	}
+	if tt.rt.focused == e.id {
+		t.Error("forcing the focus moved the real focus")
+	}
+	// Forcing goes, one at a time, and with the inspector.
+	if err := tt.Click(":hover"); err != nil {
+		t.Fatal(err)
+	}
+	if hovered {
+		t.Error(":hover stayed forced")
+	}
+	tt.rt.toggleInspector()
+	tt.Frame()
+	if pressed || focused || visible || within {
+		t.Error("the states outlast the inspector")
+	}
+}
+
+func TestInspectorForcedFocusRings(t *testing.T) {
+	tt, _ := inspected(func(c *context) {
+		coreColumn(c).Padding(20).Children(func() { coreBox(c).Key("box").Size(40, 40).Focusable() })
+	})
+	openInspector(tt)
+	e := chooseKeyed(t, tt, "box")
+	if elementOf(t, tt, e.id).ringShown() {
+		t.Fatal("the box has a ring")
+	}
+	tt.rt.insp.toggleForced(e.id, forceFocusVisible)
+	tt.Frame()
+	if !elementOf(t, tt, e.id).ringShown() {
+		t.Error(":focus-visible does not ring the box")
+	}
+}
+
+// The inspector writes a bound in DIPs and by percentage as CSS's min()
+// or max() of the two, and reads it back.
+func TestCSSBoundRoundTrip(t *testing.T) {
+	var both, pct bound
+	both.setPct(78)
+	both.setPx(544)
+	pct.setPct(50)
+	for _, tc := range []struct {
+		b     bound
+		upper bool
+		css   string
+	}{{both, true, "min(78%, 544px)"}, {both, false, "max(78%, 544px)"}, {pct, true, "50%"}} {
+		css := cssBound(tc.b, tc.upper)
+		if css != tc.css {
+			t.Errorf("%+v is %q, want %q", tc.b, css, tc.css)
+		}
+		if b, ok := parseCSSBound(css, tc.upper); !ok || b != tc.b {
+			t.Errorf("%q reads back as %+v, %v", css, b, ok)
+		}
+	}
+	for _, s := range []string{"min(1px, 2px)", "max(78%, 544px)", "min(auto, 5px)", "min(5px)"} {
+		if _, ok := parseCSSBound(s, true); ok {
+			t.Errorf("max-width: %s was understood", s)
+		}
 	}
 }
