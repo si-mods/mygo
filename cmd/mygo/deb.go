@@ -17,6 +17,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/egoist/mygo/internal/update"
 )
 
 // Linux configures Linux packaging.
@@ -140,7 +142,7 @@ func writeDeb(c *Config, stage, name, goarch string, app []string) (string, erro
 					return err
 				}
 				mode := int64(0o644)
-				if info.Mode()&0o111 != 0 {
+				if update.Perm(info.Mode().Perm(), b)&0o111 != 0 {
 					mode = 0o755
 				}
 				data.file(target, b, mode)

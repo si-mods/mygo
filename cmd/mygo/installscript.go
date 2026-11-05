@@ -301,7 +301,9 @@ linux() {
 	rm -rf "$staging"
 	mkdir -p "$staging"
 	tar -xzf "$archive" -C "$staging"
-	[ -f "$staging/$name" ] && [ -x "$staging/$name" ] || fail "$archive is not $app_name: it holds no $name"
+	[ -f "$staging/$name" ] || fail "$archive is not $app_name: it holds no $name"
+	# Archives made on Windows have no exec bits.
+	chmod +x "$staging/$name"
 	# Replace the app as a whole, so that no file of another version stays.
 	rm -rf "$app_dir"
 	mv "$staging" "$app_dir"

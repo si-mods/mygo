@@ -1,10 +1,15 @@
 package update
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -99,6 +104,94 @@ func TestArchive(t *testing.T) {
 		if link, err := os.Readlink(filepath.Join(dst, "App.app/Contents/Resources/link")); err != nil || link != "data/a.txt" {
 			t.Errorf("link = %q, %v", link, err)
 		}
+	}
+}
+
+// TestArchiveExecBits checks that programs keep exec bits that files made
+// on Windows lack: archives get them, and archives made without them
+// install with them.
+func TestArchiveExecBits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no exec bits")
+	}
+	const elf, text = "\x7fELF program", "text"
+	src := t.TempDir()
+	os.WriteFile(filepath.Join(src, "app"), []byte(elf), 0o644)
+	os.WriteFile(filepath.Join(src, "notes.txt"), []byte(text), 0o644)
+	var buf bytes.Buffer
+	if err := WriteArchive(&buf, src, []string{"app", "notes.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	gz, err := gzip.NewReader(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modes := map[string]int64{}
+	for tr := tar.NewReader(gz); ; {
+		hdr, err := tr.Next()
+		if err != nil {
+			break
+		}
+		modes[hdr.Name] = hdr.Mode
+	}
+	if modes["app"] != 0o755 || modes["notes.txt"] != 0o644 {
+		t.Errorf("archive modes = %v", modes)
+	}
+
+	// An archive made on Windows, with every file 0666.
+	buf.Reset()
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	for name, content := range map[string]string{"app": elf, "notes.txt": text} {
+		tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: name, Mode: 0o666, Size: int64(len(content))})
+		tw.Write([]byte(content))
+	}
+	tw.Close()
+	gw.Close()
+	dst := t.TempDir()
+	if err := ExtractArchive(&buf, dst); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(dst, "app")); err != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("app installed as %v, %v", info.Mode(), err)
+	}
+	if info, err := os.Stat(filepath.Join(dst, "notes.txt")); err != nil || info.Mode().Perm()&0o111 != 0 {
+		t.Errorf("notes.txt installed as %v, %v", info.Mode(), err)
+	}
+
+	// Deltas get them too.
+	var delta bytes.Buffer
+	if err := WriteDelta(&delta, "1", "2", t.TempDir(), src, nil); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "app")
+	if err := ApplyDelta(bytes.NewReader(delta.Bytes()), int64(delta.Len()), "1", "2", t.TempDir(), out); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(out, "app")); err != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("the delta made app %v, %v", info.Mode(), err)
+	}
+
+	// A delta made on Windows.
+	old, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer old.Close()
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	data := deflate([]byte(elf))
+	sum := sha256.Sum256([]byte(elf))
+	e := deltaEntry{Path: "app", Mode: 0o666, Size: int64(len(elf)), SHA256: hex.EncodeToString(sum[:]), Data: int64(len(data))}
+	if err := applyFile(e, io.NewSectionReader(bytes.NewReader(data), 0, int64(len(data))), old, root); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(dir, "app")); err != nil || info.Mode().Perm() != fs.FileMode(0o755) {
+		t.Errorf("the delta made app %v, %v", info.Mode(), err)
 	}
 }
 

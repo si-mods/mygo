@@ -106,6 +106,25 @@ func TestDebCommand(t *testing.T) {
 	}
 }
 
+// The executable of an app built on Windows, which has no exec bits, is
+// executable in the package.
+func TestDebExecBits(t *testing.T) {
+	c := &Config{root: t.TempDir(), Name: "My App", Version: "1.0.0"}
+	stage := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stage, "my-app"), []byte("\x7fELF"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deb, err := writeDeb(c, stage, "my-app", "amd64", []string{"my-app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	debEntries(t, deb, "data.tar.gz", func(hdr *tar.Header, _ []byte) {
+		if hdr.Name == "./opt/my-app/my-app" && hdr.Mode != 0o755 {
+			t.Errorf("my-app has mode %o", hdr.Mode)
+		}
+	})
+}
+
 // An app that shows no web page depends on GTK alone, and install.sh does
 // not ask for WebKitGTK (#551).
 func TestLinuxWebView(t *testing.T) {
