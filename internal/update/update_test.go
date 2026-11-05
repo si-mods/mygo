@@ -1,10 +1,14 @@
 package update
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
+	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -99,6 +103,76 @@ func TestArchive(t *testing.T) {
 		if link, err := os.Readlink(filepath.Join(dst, "App.app/Contents/Resources/link")); err != nil || link != "data/a.txt" {
 			t.Errorf("link = %q, %v", link, err)
 		}
+	}
+}
+
+// TestArchiveExecBits checks the modes that archives and deltas give
+// files: their own, except on Windows, which has no exec bits, where
+// programs and scripts get 0o755.
+func TestArchiveExecBits(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no exec bits")
+	}
+	src := t.TempDir()
+	files := map[string]string{"elf": "\x7fELF program", "macho": "\xcf\xfa\xed\xfe program", "script": "#!/bin/sh\n", "data": "text"}
+	var names []string
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(src, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, name)
+	}
+	modes := func() (archived, delta map[string]int64) {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := WriteArchive(&buf, src, names); err != nil {
+			t.Fatal(err)
+		}
+		gz, err := gzip.NewReader(&buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		archived = map[string]int64{}
+		for tr := tar.NewReader(gz); ; {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			archived[hdr.Name] = hdr.Mode
+		}
+		buf.Reset()
+		if err := WriteDelta(&buf, "1", "2", t.TempDir(), src, names); err != nil {
+			t.Fatal(err)
+		}
+		out := filepath.Join(t.TempDir(), "app")
+		if err := ApplyDelta(bytes.NewReader(buf.Bytes()), int64(buf.Len()), "1", "2", t.TempDir(), out); err != nil {
+			t.Fatal(err)
+		}
+		delta = map[string]int64{}
+		for _, name := range names {
+			info, err := os.Stat(filepath.Join(out, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			delta[name] = int64(info.Mode().Perm())
+		}
+		return archived, delta
+	}
+
+	// Elsewhere, a library without exec bits keeps its mode.
+	all644 := map[string]int64{"elf": 0o644, "macho": 0o644, "script": 0o644, "data": 0o644}
+	if archived, delta := modes(); !maps.Equal(archived, all644) || !maps.Equal(delta, all644) {
+		t.Errorf("modes: archive %v, delta %v", archived, delta)
+	}
+
+	windowsHost = true
+	defer func() { windowsHost = false }()
+	want := map[string]int64{"elf": 0o755, "macho": 0o755, "script": 0o755, "data": 0o644}
+	if archived, delta := modes(); !maps.Equal(archived, want) || !maps.Equal(delta, want) {
+		t.Errorf("modes on Windows: archive %v, delta %v", archived, delta)
 	}
 }
 

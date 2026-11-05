@@ -5,6 +5,7 @@ package update
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -205,19 +207,22 @@ func WriteArchive(w io.Writer, dir string, entries []string) error {
 				hdr.Name += "/"
 			}
 			hdr.Uid, hdr.Gid, hdr.Uname, hdr.Gname = 0, 0, "", ""
+			if !info.Mode().IsRegular() {
+				return tw.WriteHeader(hdr)
+			}
+			f, err := os.Open(p)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			head := make([]byte, 4)
+			n, _ := f.ReadAt(head, 0)
+			hdr.Mode = hdr.Mode&^0o777 | int64(Perm(info, head[:n]))
 			if err := tw.WriteHeader(hdr); err != nil {
 				return err
 			}
-			if info.Mode().IsRegular() {
-				f, err := os.Open(p)
-				if err != nil {
-					return err
-				}
-				_, err = io.Copy(tw, f)
-				f.Close()
-				return err
-			}
-			return nil
+			_, err = io.Copy(tw, f)
+			return err
 		})
 		if err != nil {
 			return err
@@ -227,6 +232,23 @@ func WriteArchive(w io.Writer, dir string, entries []string) error {
 		return err
 	}
 	return gz.Close()
+}
+
+// windowsHost is whether files come from Windows, which has no exec bits.
+var windowsHost = runtime.GOOS == "windows"
+
+// Perm returns the permissions to package the file of info with, whose
+// content starts with head: its own, except on Windows, which has no exec
+// bits, where programs (ELF, 64-bit Mach-O) and scripts (#!) get 0o755.
+func Perm(info fs.FileInfo, head []byte) fs.FileMode {
+	if windowsHost {
+		for _, magic := range []string{"\x7fELF", "\xcf\xfa\xed\xfe", "#!"} {
+			if bytes.HasPrefix(head, []byte(magic)) {
+				return 0o755
+			}
+		}
+	}
+	return info.Mode().Perm()
 }
 
 // ExtractArchive unpacks an archive of WriteArchive into dir. It refuses

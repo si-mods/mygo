@@ -59,7 +59,8 @@ func TestInstallScript(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(dir, "icon.png"), []byte("png"), 0o644)
 	// build stages a fake app of version and writes its archive and
-	// install.sh, returning where they are.
+	// install.sh, returning where they are. The files of 1.0.0 have no
+	// exec bits, as on Windows: install.sh makes the app executable.
 	build := func(c *Config, version string) string {
 		t.Helper()
 		c.Version = version
@@ -69,9 +70,13 @@ func TestInstallScript(t *testing.T) {
 			"only-" + version:       "",
 			"resources/config.json": "{}",
 		}
+		mode := os.FileMode(0o755)
+		if version == "1.0.0" {
+			mode = 0o644
+		}
 		for name, content := range files {
 			os.MkdirAll(filepath.Join(stage, filepath.Dir(name)), 0o755)
-			if err := os.WriteFile(filepath.Join(stage, name), []byte(content), 0o755); err != nil {
+			if err := os.WriteFile(filepath.Join(stage, name), []byte(content), mode); err != nil {
 				t.Fatal(err)
 			}
 		}
