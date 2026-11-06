@@ -534,6 +534,11 @@ func (v *view) draw(p *ui.Painter, r ui.Rect) {
 			p.Fill(ui.Rect{X: ox + float32(line.selA)*cw, Y: ry, W: float32(line.selB-line.selA+1) * cw, H: ch}, selection, 0)
 		}
 	}
+	if v.pulseShows() {
+		// The light that crosses the selection as it is made or copied,
+		// over the selection and under the text.
+		v.drawPulse(p, ox, oy, cw, ch)
+	}
 	match, matchText, selMatch, selMatchText := v.searchColors()
 	for _, m := range v.matches {
 		if m.y >= v.top && m.y < len(v.lines) {
