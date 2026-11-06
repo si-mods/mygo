@@ -15,13 +15,13 @@ import (
 // selection's size (selection_pulse_light, selection_pulse_style).
 const (
 	// pulseLife is how long the light takes to cross the selection.
-	pulseLife = 420 * time.Millisecond
+	pulseLife = 340 * time.Millisecond
 	// pulseSlant leans the band: where a point sits along it is
 	// x + pulseSlant*y, so the light runs down and to the right.
 	pulseSlant = 0.35
 	// pulseCore, pulseBloom and pulseRim are the lobes' strength where
 	// they are brightest.
-	pulseCore, pulseBloom, pulseRim = 0.72, 0.3, 0.55
+	pulseCore, pulseBloom, pulseRim = 0.62, 0.28, 0.5
 	// pulseSpanScale and pulseCellScale size the band: its lobes are as
 	// wide as a share of the selection's diagonal, or of its line
 	// height, whichever is larger.
@@ -49,65 +49,26 @@ func (v *view) pulseOn(now time.Time) bool {
 	return since >= 0 && since < pulseLife
 }
 
-// startPulse starts the light now, unless one already runs or a
-// selection is not shown.
+// startPulse starts the light now, unless a selection is not shown.
 func (v *view) startPulse(c *ui.Context) {
 	v.pulseWanted = false
-	if v.pulseOn(c.Now()) {
-		// The light that runs crosses the selection it started on.
-		return
-	}
+	v.pulseStart = c.Now()
 	if !v.hasSelection() {
 		v.pulseStart = time.Time{}
 		return
 	}
-	v.pulseStart = c.Now()
 }
 
-// advancePulse starts or keeps the light running as a frame builds: a
-// selection that appears or changes crosses with it, as does one a frame
-// asked for, and it asks for the frames the pulse still needs.
+// advancePulse starts or keeps the light running as a frame builds: it
+// starts the pulse a frame asked for, and asks for the frames the pulse
+// still needs.
 func (v *view) advancePulse(c *ui.Context) {
-	b, ok := v.selectionBounds()
-	if !ok {
-		b = [4]int{}
-	}
-	if b != v.pulseSel {
-		// The selection grew, shrank or went; the light follows the
-		// selection as it is made.
-		v.pulseSel = b
-		if ok {
-			v.pulseWanted = true
-		}
-	}
 	if v.pulseWanted {
 		v.startPulse(c)
 	}
 	if v.pulseOn(c.Now()) {
 		c.After(8 * time.Millisecond)
 	}
-}
-
-// selectionBounds returns the box the selection covers on the grid, as
-// first and last column then first and last row, and whether it shows.
-func (v *view) selectionBounds() ([4]int, bool) {
-	x0, x1, y0, y1 := 0, -1, -1, -1
-	for y := v.top; y < len(v.lines); y++ {
-		line := &v.lines[y]
-		if !line.sel {
-			continue
-		}
-		if y0 < 0 {
-			y0, x0, x1 = y, line.selA, line.selB
-		} else {
-			x0, x1 = min(x0, line.selA), max(x1, line.selB)
-		}
-		y1 = y
-	}
-	if y0 < 0 {
-		return [4]int{}, false
-	}
-	return [4]int{x0, y0, x1, y1}, true
 }
 
 // pulseSheen returns how far across the selection the light has come,
@@ -234,15 +195,27 @@ func (v *view) hasSelection() bool {
 // selectionRect returns the box the selection covers on the grid, in the
 // pixels of a grid that starts at ox, oy with cells cw by ch.
 func (v *view) selectionRect(ox, oy, cw, ch float32) (ui.Rect, bool) {
-	b, ok := v.selectionBounds()
-	if !ok {
+	x0, x1, y0, y1 := 0, -1, -1, -1
+	for y := v.top; y < len(v.lines); y++ {
+		line := &v.lines[y]
+		if !line.sel {
+			continue
+		}
+		if y0 < 0 {
+			y0, x0, x1 = y, line.selA, line.selB
+		} else {
+			x0, x1 = min(x0, line.selA), max(x1, line.selB)
+		}
+		y1 = y
+	}
+	if y0 < 0 {
 		return ui.Rect{}, false
 	}
 	return ui.Rect{
-		X: ox + float32(b[0])*cw,
-		Y: oy + float32(b[1])*ch,
-		W: float32(b[2]-b[0]+1) * cw,
-		H: float32(b[3]-b[1]+1) * ch,
+		X: ox + float32(x0)*cw,
+		Y: oy + float32(y0)*ch,
+		W: float32(x1-x0+1) * cw,
+		H: float32(y1-y0+1) * ch,
 	}, true
 }
 

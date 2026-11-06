@@ -95,30 +95,3 @@ func brightness(term *Terminal, img *image.RGBA) float64 {
 	}
 	return sum / float64(n)
 }
-
-// TestSelectionPulseFollowsDrag checks that the light crosses a
-// selection as the drag makes it, not only once the pointer lets go.
-func TestSelectionPulseFollowsDrag(t *testing.T) {
-	loadLib(t)
-	term, err := New(Options{Conn: newPipe()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer term.Close()
-	term.Feed([]byte("hello world\r\nsecond line\r\nthird line"))
-	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
-	x0, y0 := cellCenter(term, 0, 0)
-	x1, y1 := cellCenter(term, 8, 0)
-	tt.Press(x0, y0)
-	tt.Frame()
-	tt.Move(x1, y1)
-	tt.Frame()
-	plain := brightness(term, tt.Image())
-	tt.Advance(pulseLife / 2)
-	tt.Frame()
-	if got := brightness(term, tt.Image()); got <= plain {
-		t.Fatalf("the selection is %.1f bright while the drag is held and %.1f halfway through the pulse", plain, got)
-	}
-	tt.Release(x1, y1)
-	tt.Frame()
-}

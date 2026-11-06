@@ -198,11 +198,9 @@ type view struct {
 	blinkStart time.Time
 	caretCell  [2]int // the cursor's cell, for input methods
 	// pulseWanted asks the next frame to start the selection pulse, which
-	// pulseStart says began when, and pulseSel is the selection it last
-	// crossed; pulse.go draws it.
+	// pulseStart says began when; pulse.go draws it.
 	pulseWanted bool
 	pulseStart  time.Time
-	pulseSel    [4]int
 	// selecting tells that the primary button selects; reporting that a
 	// press went to the program, which gets the release too.
 	selecting, reporting bool
