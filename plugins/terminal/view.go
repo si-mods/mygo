@@ -197,10 +197,6 @@ type view struct {
 	focused    bool
 	blinkStart time.Time
 	caretCell  [2]int // the cursor's cell, for input methods
-	// pulseWanted asks the next frame to start the selection pulse, which
-	// pulseStart says began when; pulse.go draws it.
-	pulseWanted bool
-	pulseStart  time.Time
 	// selecting tells that the primary button selects; reporting that a
 	// press went to the program, which gets the release too.
 	selecting, reporting bool
@@ -363,7 +359,6 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		since := c.Now().Sub(v.blinkStart)
 		c.After(blinkPeriod - since%blinkPeriod)
 	}
-	v.advancePulse(c)
 	if v.ticking {
 		c.After(40 * time.Millisecond)
 	}
@@ -619,11 +614,6 @@ func (v *view) input(ev ui.InputEvent) bool {
 		return true
 	case ui.InputPointerDown, ui.InputPointerUp, ui.InputPointerMove:
 		took := v.pointerEvent(ev)
-		if ev.Kind == ui.InputPointerUp {
-			// A drag that ends leaves a selection, which the light
-			// crosses.
-			v.pulseStarted()
-		}
 		if link := v.opening; link != "" {
 			v.opening = ""
 			if open := v.t.opts.OpenLink; (open == nil || !open(link)) && !v.openingPath {
@@ -940,8 +930,6 @@ func (v *view) copy(clear bool) bool {
 	}
 	v.services.WriteClipboard(text)
 	v.copied(text, CopyUser)
-	// The selection the copy leaves shows the light cross it.
-	v.pulseStarted()
 	if clear {
 		v.services.Invalidate()
 	}
@@ -1021,7 +1009,6 @@ func (v *view) selectAll() {
 		v.services.WriteClipboard(text)
 		v.copied(text, CopySelect)
 	}
-	v.pulseStarted()
 	v.services.Invalidate()
 }
 
