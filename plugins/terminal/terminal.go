@@ -252,6 +252,14 @@ type Options struct {
 	// opens with the system (Context.OpenURL), and a path it leaves does
 	// nothing.
 	OpenLink func(link string) bool
+	// LinkDir decides, with OpenLink, whether a directory printed as text,
+	// a path that ends in a slash (docs/, ~/, ./src/), is a link: as a word
+	// before a slash in prose (w/, I/) prints the same, only one the app
+	// finds, a directory of the program's, should be. It runs with the
+	// terminal locked, as the pointer moves over the path with Command
+	// held, so it calls none of the terminal's methods. Without it no such
+	// path is a link.
+	LinkDir func(dir string) bool
 	// OnPaste sees a paste of the clipboard (ActionPaste's keys, a Paste
 	// menu item, a secondary click with RightClickPaste) before the
 	// program gets it, on the main thread, with every format the

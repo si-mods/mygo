@@ -12,8 +12,10 @@ var urlPattern = regexp.MustCompile(`(?:https?|ftp|file)://[^\s"'<>` + "`" + `\x
 
 // pathPattern finds the file paths programs print as text: absolute, from
 // ~, ./ or ../, with a slash, as a directory docs/ that ends in one, or a
-// file name with an extension; each may end in :line or :line:col.
-var pathPattern = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s"'<>` + "`" + `\x00-\x1f:]+|[\w.@+-]+(?:/[\w.@+-]+)*/[\w.@+-]*)(?::\d+(?::\d+)?)?|[\w@+-][\w.@+-]*\.\w+(?::\d+(?::\d+)?)?`)
+// file name with an extension; each may end in :line or :line:col. ~/, ./
+// and ../ alone are directories too. Of the paths that end in a slash, the
+// view takes only those Options.LinkDir finds (isDir).
+var pathPattern = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s"'<>` + "`" + `\x00-\x1f:]+|~/|[\w.@+-]+(?:/[\w.@+-]+)*/[\w.@+-]*)(?::\d+(?::\d+)?)?|[\w@+-][\w.@+-]*\.\w+(?::\d+(?::\d+)?)?`)
 
 // urlAt returns the URL of text, a row whose runes are in columns cols, at
 // column col, and the columns it spans, x0 up to x1, or "".
@@ -30,6 +32,12 @@ func pathAt(text []rune, cols []int, col int) (path string, x0, x1 int) {
 	}
 	return p, x0, x1
 }
+
+// isDir reports whether a path printed as text names a directory, by the
+// slash at its end, as docs/ or ~/: one a word before a slash in prose
+// (w/, I/, yes/no/) prints too, so that it is a link only where the app
+// finds it.
+func isDir(path string) bool { return strings.HasSuffix(path, "/") }
 
 func matchAt(re *regexp.Regexp, text []rune, cols []int, col int) (string, int, int) {
 	s := string(text)

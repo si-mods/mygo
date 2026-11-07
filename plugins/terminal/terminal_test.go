@@ -1583,6 +1583,63 @@ func TestCommandClickLinks(t *testing.T) {
 	}
 }
 
+// TestCommandClickDirs: a directory printed as text, a path that ends in a
+// slash, is a link only where Options.LinkDir finds it, so that a word
+// before a slash in prose is none; a URL that ends in one is the URL.
+func TestCommandClickDirs(t *testing.T) {
+	loadLib(t)
+	row := "ls docs/ w/ ~/ ../ src/app/ https://x.org/a/ ok"
+	for _, c := range []struct {
+		name string
+		dirs []string // what LinkDir finds; nil: no LinkDir
+		want []string
+	}{
+		{"LinkDir", []string{"docs/", "~/", "../", "src/app/"}, []string{"docs/", "~/", "../", "src/app/", "https://x.org/a/"}},
+		{"no LinkDir", nil, []string{"https://x.org/a/"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var opened, asked []string
+			opts := Options{Conn: newPipe(), OpenLink: func(link string) bool {
+				opened = append(opened, link)
+				return true
+			}}
+			if c.dirs != nil {
+				opts.LinkDir = func(dir string) bool {
+					asked = append(asked, dir)
+					return slices.Contains(c.dirs, dir)
+				}
+			}
+			term, err := New(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer term.Close()
+			term.Feed([]byte(row))
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 800, 200)
+			tt.Frame()
+			// A column in each word, the URL's in its path, past https:.
+			for _, word := range []string{"docs/", "w/", "~/", "../", "src/app/", "x.org/a/"} {
+				x, y := cellCenter(term, strings.Index(row, word)+1, 0)
+				tt.ClickAtWith(ui.Cmd, x, y)
+			}
+			if !slices.Equal(opened, c.want) {
+				t.Errorf("opened %q, want %q", opened, c.want)
+			}
+			if c.dirs != nil && !slices.Contains(asked, "w/") {
+				t.Errorf("LinkDir was not asked of w/: %q", asked)
+			}
+			// Hovered with Command, w/ is no link: nothing underlined.
+			x, y := cellCenter(term, strings.Index(row, "w/"), 0)
+			tt.Move(x, y)
+			tt.HoldModifiers(ui.Cmd)
+			if h := term.v.hover; h.on() {
+				t.Errorf("w/ hovered as a link: %+v", h)
+			}
+			tt.HoldModifiers(0)
+		})
+	}
+}
+
 // Command-hover underlines the same cells that Command-click opens,
 // including bare filenames and paths to ignored output directories.
 func TestCommandHoverFilePath(t *testing.T) {

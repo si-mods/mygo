@@ -50,7 +50,9 @@ func TestPathAt(t *testing.T) {
 		{"in (docs/), then", 5, "docs/"},
 		{"the foo/ dir", 5, "foo/"},
 		{"the foo/ dir", 1, ""},
-		{"go to https://x.org/a/ now", 8, ""}, // urlAt takes it first
+		{"cd ~/ now", 4, "~/"},
+		{"cd ./ now", 4, "./"},
+		{"cd ../ now", 4, "../"},
 		{"and/or", 2, "and/or"},
 		{"trailing / alone", 9, ""},
 	} {
