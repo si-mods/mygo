@@ -41,6 +41,18 @@ func TestPathAt(t *testing.T) {
 		{"notes.md:2:3", 2, "notes.md:2:3"},
 		{"just words here", 5, ""},
 		{"version 1.2.3 ok", 9, ""},
+		{"docs/", 2, "docs/"},
+		{"ls dist/ now", 4, "dist/"},
+		{"see a/b/ and", 5, "a/b/"},
+		{"README.md", 3, "README.md"},
+		{"docs/a", 5, "docs/a"},
+		{"cd docs/.", 5, "docs/"},
+		{"in (docs/), then", 5, "docs/"},
+		{"the foo/ dir", 5, "foo/"},
+		{"the foo/ dir", 1, ""},
+		{"go to https://x.org/a/ now", 8, ""}, // urlAt takes it first
+		{"and/or", 2, "and/or"},
+		{"trailing / alone", 9, ""},
 	} {
 		text := []rune(c.row)
 		cols := make([]int, len(text))

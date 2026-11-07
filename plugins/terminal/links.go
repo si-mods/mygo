@@ -11,9 +11,9 @@ import (
 var urlPattern = regexp.MustCompile(`(?:https?|ftp|file)://[^\s"'<>` + "`" + `\x00-\x1f]+|mailto:[^\s"'<>` + "`" + `]+`)
 
 // pathPattern finds the file paths programs print as text: absolute, from
-// ~, ./ or ../, with a slash, or a file name with an extension; each may end in
-// :line or :line:col.
-var pathPattern = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s"'<>` + "`" + `\x00-\x1f:]+|[\w.@+-]+(?:/[\w.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\w@+-][\w.@+-]*\.\w+(?::\d+(?::\d+)?)?`)
+// ~, ./ or ../, with a slash, as a directory docs/ that ends in one, or a
+// file name with an extension; each may end in :line or :line:col.
+var pathPattern = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s"'<>` + "`" + `\x00-\x1f:]+|[\w.@+-]+(?:/[\w.@+-]+)*/[\w.@+-]*)(?::\d+(?::\d+)?)?|[\w@+-][\w.@+-]*\.\w+(?::\d+(?::\d+)?)?`)
 
 // urlAt returns the URL of text, a row whose runes are in columns cols, at
 // column col, and the columns it spans, x0 up to x1, or "".
