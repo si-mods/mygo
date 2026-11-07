@@ -3039,3 +3039,25 @@ func TestDrawnMenu(t *testing.T) {
 		t.Error("the menu stays after a choice")
 	}
 }
+
+func TestProgress(t *testing.T) {
+	loadLib(t)
+	var got [][2]int
+	term, err := New(Options{Conn: newPipe(), OnProgress: func(state, percent int) {
+		got = append(got, [2]int{state, percent})
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	// One report a write: the last of several in one.
+	term.Feed([]byte("\x1b]9;4;1;40\x1b\\"))
+	term.Feed([]byte("\x1b]9;4;1;50\x07\x1b]9;4;2;70\x07"))
+	term.Feed([]byte("\x1b]9;4;3\x07"))
+	term.Feed([]byte("plain text"))
+	term.Feed([]byte("\x1b]9;4;0\x07"))
+	want := [][2]int{{1, 40}, {2, 70}, {3, -1}, {0, -1}}
+	if !slices.Equal(got, want) {
+		t.Errorf("progress = %v, want %v", got, want)
+	}
+}

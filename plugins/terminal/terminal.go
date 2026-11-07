@@ -207,6 +207,12 @@ type Options struct {
 	OnExit   func(code int)
 	OnBell   func()
 	OnNotify func(title, body string)
+	// OnProgress runs on a goroutine of the terminal when a program
+	// reports its progress (OSC 9;4), as Ghostty's progress bar: state is
+	// 0 when the program removes it, 1 for progress, 2 for an error, 3 for
+	// progress of no known amount and 4 paused; percent is 0 to 100, or -1
+	// when the report gives none. A full reset removes it.
+	OnProgress func(state, percent int)
 	// OnPasteStatus tells how a paste goes that a program reads itself
 	// (mode 5522, see PasteData), on a goroutine of the terminal: offered,
 	// then sending as the program reads, then sent; or not taken when the
@@ -594,6 +600,8 @@ type events struct {
 	title  bool
 	bells  int
 	notify [][2]string
+	// progress is the last progress report, nil for none.
+	progress *[2]int
 }
 
 // New makes a terminal running opts.Command, or connected to opts.Conn.
@@ -700,6 +708,7 @@ func (t *Terminal) effects() vt.Effects {
 		Notify: func(title, body string) {
 			t.events.notify = append(t.events.notify, [2]string{title, body})
 		},
+		Progress: func(state, percent int) { t.events.progress = &[2]int{state, percent} },
 	}
 }
 
@@ -886,6 +895,9 @@ func (t *Terminal) fire(ev events, title string) {
 		if o.OnNotify != nil {
 			o.OnNotify(n[0], n[1])
 		}
+	}
+	if p := ev.progress; p != nil && o.OnProgress != nil {
+		o.OnProgress(p[0], p[1])
 	}
 }
 
