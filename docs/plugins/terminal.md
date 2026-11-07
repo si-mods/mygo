@@ -293,9 +293,10 @@ term, err := terminal.New(terminal.Options{
   terminal takes it, for the server's terminal to clear (see
   [A server's terminal, shown elsewhere](#a-servers-terminal-shown-elsewhere)).
   It is not asked on a full-screen program's screen.
-- `OnTitle`, `OnExit`, `OnBell` and `OnNotify` run on a goroutine of the
-  terminal when the program sets the title, ends, rings the bell or asks
-  for a desktop notification. They may run before the window that shows
+- `OnTitle`, `OnExit`, `OnBell`, `OnNotify` and `OnProgress` run on a
+  goroutine of the terminal when the program sets the title, ends, rings
+  the bell, asks for a desktop notification or reports its progress (OSC
+  9;4: a state and a percent, -1 when not given). They may run before the window that shows
   the terminal exists, which `NewWindow` makes after `New`: callbacks
   that use the window wait for it, as the terminal example's do (`<-ready`
   before `win`, and `close(ready)` once `NewWindow` set `win`). `Done` is
