@@ -294,9 +294,10 @@ func (t *Terminal) readsClipboard() bool {
 	return t.term != nil && t.term.Mode(vt.ModePasteEvents)
 }
 
-// dropFiles pastes the paths of files dropped on the terminal, as Ghostty
-// does: each quoted for the program's shell, spaces between them, so that
-// a shell takes them as arguments and an agent as files it attaches. A
+// dropFiles pastes the paths of files dropped on the terminal: each quoted
+// for the program's shell, a space after each, as iTerm2 and Terminal do,
+// so that a shell takes them as arguments and an agent as files it
+// attaches, and the paths of a next drop do not join the last. A
 // program that reads the clipboard itself (mode 5522) is offered them as a
 // file list too, when the paths make one.
 func (t *Terminal) dropFiles(paths []string) {
@@ -307,7 +308,7 @@ func (t *Terminal) dropFiles(paths []string) {
 	for i, p := range paths {
 		escaped[i] = t.quoting.quote(p)
 	}
-	text := transfer.Bytes(transfer.Text, []byte(strings.Join(escaped, " ")))
+	text := transfer.Bytes(transfer.Text, []byte(strings.Join(escaped, " ")+" "))
 	d, err := transfer.FileData(paths...)
 	if err != nil {
 		t.PasteData(transfer.New(transfer.NewItem(text)))

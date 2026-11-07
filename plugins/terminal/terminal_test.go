@@ -2969,9 +2969,10 @@ func TestQuotePaths(t *testing.T) {
 	}
 }
 
-// Files dropped on a terminal paste their paths, escaped for a shell and
-// between spaces, as Ghostty does: bracketed for a program that asks, so
-// that an agent takes them as files it attaches.
+// Files dropped on a terminal paste their paths, escaped for a shell, each
+// followed by a space, so that a next drop's paths do not join the last:
+// bracketed for a program that asks, so that an agent takes them as files
+// it attaches.
 func TestDropFiles(t *testing.T) {
 	loadLib(t)
 	conn := newPipe()
@@ -2983,10 +2984,10 @@ func TestDropFiles(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
 	tt.Frame()
 	paths := []string{"/Users/me/My Shots/shot (1).png", "/tmp/a&b.txt"}
-	want := []string{`/Users/me/My\ Shots/shot\ \(1\).png /tmp/a\&b.txt`, `/tmp/a\&b.txt`}
+	want := []string{`/Users/me/My\ Shots/shot\ \(1\).png /tmp/a\&b.txt `, `/tmp/a\&b.txt `}
 	if runtime.GOOS == "windows" {
 		paths = []string{`C:\Users\me\My Shots\shot (1).png`, `C:\tmp\ab.txt`}
-		want = []string{`'C:\Users\me\My Shots\shot (1).png' C:\tmp\ab.txt`, `C:\tmp\ab.txt`}
+		want = []string{`'C:\Users\me\My Shots\shot (1).png' C:\tmp\ab.txt `, `C:\tmp\ab.txt `}
 	}
 	if !tt.DropFiles(100, 100, paths...) {
 		t.Fatal("the terminal did not take the files")
