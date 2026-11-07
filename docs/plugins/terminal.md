@@ -311,12 +311,15 @@ term, err := terminal.New(terminal.Options{
   does without `OpenLink`. An app opens a remote shell's paths in a
   preview of its own this way, rather than the system opening them
   locally.
-- `LinkDir` decides which directories printed as text, paths that end in
-  a slash (`docs/`, `~/`, `./src/`), are links, as a word before a slash
-  in prose (`w/`, `I/`) prints the same: an app takes those it finds in
-  the program's directory. It runs with the terminal locked, as the
-  pointer moves, so it calls none of the terminal's methods. Without it
-  no such path is a link.
+- `LinkPath` decides which file paths printed as text are links, as
+  printed: an app takes those it finds, so that prose such as `and/or`
+  or `w/` is none. Without it every path is, but a directory, one that
+  ends in a slash (`docs/`, `~/`, `docs/:12`), as a word before a slash
+  in prose prints the same. It runs with the terminal locked on every
+  frame the pointer is over the path with Command held, so it answers at
+  once without the disk and calls none of the terminal's methods: an app
+  checks the disk on another goroutine, answers from what it found, and
+  asks for a frame when it finds more.
 - `OnPaste` sees a paste of the clipboard, by the keys, a Paste menu item
   or a secondary click, on the main thread, with every format the
   clipboard holds as a `transfer.Data`, and takes it by returning true:

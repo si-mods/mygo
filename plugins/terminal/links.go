@@ -13,8 +13,8 @@ var urlPattern = regexp.MustCompile(`(?:https?|ftp|file)://[^\s"'<>` + "`" + `\x
 // pathPattern finds the file paths programs print as text: absolute, from
 // ~, ./ or ../, with a slash, as a directory docs/ that ends in one, or a
 // file name with an extension; each may end in :line or :line:col. ~/, ./
-// and ../ alone are directories too. Of the paths that end in a slash, the
-// view takes only those Options.LinkDir finds (isDir).
+// and ../ alone are directories too. Options.LinkPath decides which are
+// links; without it, every one but a directory (isDir).
 var pathPattern = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s"'<>` + "`" + `\x00-\x1f:]+|~/|[\w.@+-]+(?:/[\w.@+-]+)*/[\w.@+-]*)(?::\d+(?::\d+)?)?|[\w@+-][\w.@+-]*\.\w+(?::\d+(?::\d+)?)?`)
 
 // urlAt returns the URL of text, a row whose runes are in columns cols, at
@@ -34,10 +34,23 @@ func pathAt(text []rune, cols []int, col int) (path string, x0, x1 int) {
 }
 
 // isDir reports whether a path printed as text names a directory, by the
-// slash at its end, as docs/ or ~/: one a word before a slash in prose
-// (w/, I/, yes/no/) prints too, so that it is a link only where the app
-// finds it.
-func isDir(path string) bool { return strings.HasSuffix(path, "/") }
+// slash at its end, as docs/, ~/ or docs/:12: one a word before a slash in
+// prose (w/, I/, yes/no/) prints too.
+func isDir(path string) bool {
+	return strings.HasSuffix(lineSuffix.ReplaceAllString(path, ""), "/")
+}
+
+// lineSuffix is the :line or :line:col at the end of a path.
+var lineSuffix = regexp.MustCompile(`:\d+(?::\d+)?$`)
+
+// isLink reports whether a file path printed as text is a link, as
+// Options.LinkPath decides; t.mu is held.
+func (t *Terminal) isLink(path string) bool {
+	if t.opts.LinkPath != nil {
+		return t.opts.LinkPath(path)
+	}
+	return !isDir(path)
+}
 
 func matchAt(re *regexp.Regexp, text []rune, cols []int, col int) (string, int, int) {
 	s := string(text)
