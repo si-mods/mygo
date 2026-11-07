@@ -88,3 +88,14 @@ func TestURLAtSpan(t *testing.T) {
 		t.Errorf("urlAt = %q %d..%d, want https://x.org/a 6..21", url, x0, x1)
 	}
 }
+
+func TestIsDir(t *testing.T) {
+	for path, want := range map[string]bool{
+		"docs/": true, "~/": true, "docs/:12": true, "w/:3:4": true, "/a/b/": true,
+		"docs": false, "a/b": false, "main.go:12": false, "a.go:1:2": false,
+	} {
+		if got := isDir(path); got != want {
+			t.Errorf("isDir(%q) = %v, want %v", path, got, want)
+		}
+	}
+}

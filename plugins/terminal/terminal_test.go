@@ -1583,19 +1583,21 @@ func TestCommandClickLinks(t *testing.T) {
 	}
 }
 
-// TestCommandClickDirs: a directory printed as text, a path that ends in a
-// slash, is a link only where Options.LinkDir finds it, so that a word
-// before a slash in prose is none; a URL that ends in one is the URL.
+// TestCommandClickDirs: a file path printed as text is a link only where
+// Options.LinkPath takes it, so that prose (w/, and/or) is none; without
+// it, every path but a directory, one that ends in a slash, :line or not.
+// A URL that ends in a slash is the URL, clicked in its path.
 func TestCommandClickDirs(t *testing.T) {
 	loadLib(t)
-	row := "ls docs/ w/ ~/ ../ src/app/ https://x.org/a/ ok"
+	row := "ls docs/ w/ ~/ ../ src/app/ docs/:12 w/:3 and/or https://x.org/a/ ok"
+	words := []string{"docs/", "w/", "~/", "../", "src/app/", "docs/:12", "w/:3", "and/or", "x.org/a/"}
 	for _, c := range []struct {
-		name string
-		dirs []string // what LinkDir finds; nil: no LinkDir
-		want []string
+		name  string
+		paths []string // what LinkPath takes; nil: no LinkPath
+		want  []string
 	}{
-		{"LinkDir", []string{"docs/", "~/", "../", "src/app/"}, []string{"docs/", "~/", "../", "src/app/", "https://x.org/a/"}},
-		{"no LinkDir", nil, []string{"https://x.org/a/"}},
+		{"LinkPath", []string{"docs/", "~/", "../", "src/app/", "docs/:12"}, []string{"docs/", "~/", "../", "src/app/", "docs/:12", "https://x.org/a/"}},
+		{"no LinkPath", nil, []string{"and/or", "https://x.org/a/"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var opened, asked []string
@@ -1603,10 +1605,10 @@ func TestCommandClickDirs(t *testing.T) {
 				opened = append(opened, link)
 				return true
 			}}
-			if c.dirs != nil {
-				opts.LinkDir = func(dir string) bool {
-					asked = append(asked, dir)
-					return slices.Contains(c.dirs, dir)
+			if c.paths != nil {
+				opts.LinkPath = func(path string) bool {
+					asked = append(asked, path)
+					return slices.Contains(c.paths, path)
 				}
 			}
 			term, err := New(opts)
@@ -1615,21 +1617,24 @@ func TestCommandClickDirs(t *testing.T) {
 			}
 			defer term.Close()
 			term.Feed([]byte(row))
-			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 800, 200)
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 1000, 200)
 			tt.Frame()
-			// A column in each word, the URL's in its path, past https:.
-			for _, word := range []string{"docs/", "w/", "~/", "../", "src/app/", "x.org/a/"} {
-				x, y := cellCenter(term, strings.Index(row, word)+1, 0)
+			for _, word := range words {
+				col := strings.Index(row, " "+word+" ") + 2
+				if word == "x.org/a/" {
+					col = strings.Index(row, word) + 1
+				}
+				x, y := cellCenter(term, col, 0)
 				tt.ClickAtWith(ui.Cmd, x, y)
 			}
 			if !slices.Equal(opened, c.want) {
 				t.Errorf("opened %q, want %q", opened, c.want)
 			}
-			if c.dirs != nil && !slices.Contains(asked, "w/") {
-				t.Errorf("LinkDir was not asked of w/: %q", asked)
+			if c.paths != nil && !slices.Contains(asked, "and/or") {
+				t.Errorf("LinkPath was not asked of and/or: %q", asked)
 			}
 			// Hovered with Command, w/ is no link: nothing underlined.
-			x, y := cellCenter(term, strings.Index(row, "w/"), 0)
+			x, y := cellCenter(term, strings.Index(row, " w/ ")+1, 0)
 			tt.Move(x, y)
 			tt.HoldModifiers(ui.Cmd)
 			if h := term.v.hover; h.on() {

@@ -252,14 +252,17 @@ type Options struct {
 	// opens with the system (Context.OpenURL), and a path it leaves does
 	// nothing.
 	OpenLink func(link string) bool
-	// LinkDir decides, with OpenLink, whether a directory printed as text,
-	// a path that ends in a slash (docs/, ~/, ./src/), is a link: as a word
-	// before a slash in prose (w/, I/) prints the same, only one the app
-	// finds, a directory of the program's, should be. It runs with the
-	// terminal locked, as the pointer moves over the path with Command
-	// held, so it calls none of the terminal's methods. Without it no such
-	// path is a link.
-	LinkDir func(dir string) bool
+	// LinkPath decides, with OpenLink, whether a file path printed as
+	// text is a link, as printed, a :line:col suffix included: an app can
+	// take only the paths it finds, so that prose such as and/or or w/ is
+	// none. Without it every path is a link but a directory, one that ends
+	// in a slash (docs/, ~/), which a word before a slash in prose prints
+	// the same. It runs with the terminal locked, on every frame the
+	// pointer is over the path with Command held, so it answers at once,
+	// touching no disk, and calls none of the terminal's methods: an app
+	// that checks the disk does so on another goroutine and answers from
+	// what it found, asking for a frame when it finds more.
+	LinkPath func(path string) bool
 	// OnPaste sees a paste of the clipboard (ActionPaste's keys, a Paste
 	// menu item, a secondary click with RightClickPaste) before the
 	// program gets it, on the main thread, with every format the

@@ -1258,7 +1258,7 @@ func (v *view) linkAt(col, row int) (link string, path bool, at linkSpan) {
 		return url, false, linkSpan{row, x0, x1}
 	}
 	if t.opts.OpenLink != nil {
-		if p, x0, x1 := pathAt(text, cols, col); p != "" && (!isDir(p) || t.opts.LinkDir != nil && t.opts.LinkDir(p)) {
+		if p, x0, x1 := pathAt(text, cols, col); p != "" && t.isLink(p) {
 			return p, true, linkSpan{row, x0, x1}
 		}
 	}
