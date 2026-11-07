@@ -297,9 +297,11 @@ func (t *Terminal) readsClipboard() bool {
 // dropFiles pastes the paths of files dropped on the terminal: each quoted
 // for the program's shell, a space after each, as iTerm2 and Terminal do,
 // so that a shell takes them as arguments and an agent as files it
-// attaches, and the paths of a next drop do not join the last. A
-// program that reads the clipboard itself (mode 5522) is offered them as a
-// file list too, when the paths make one.
+// attaches, and the paths of a next drop do not join the last. The space
+// is inside a bracketed paste too, as iTerm2 pastes it, which agents that
+// attach the files of a paste take. A program that reads the clipboard
+// itself (mode 5522) is offered them as a file list too, when the paths
+// make one.
 func (t *Terminal) dropFiles(paths []string) {
 	if len(paths) == 0 {
 		return
