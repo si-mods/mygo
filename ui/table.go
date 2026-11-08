@@ -211,6 +211,9 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 			// Keyed by its column, a cell keeps its state as the columns
 			// move: a header being dragged keeps the press.
 			box := coreRow(c).Key(col.id()).Padding(t.Space(1.5), t.Space(2.5)).AlignItems(Center).Shrink(0).Clip().Role(role)
+			if role == RoleCell && col.RowHeader {
+				box.Role(RoleRowHeader) // naming its row
+			}
 			if w, ok := layout.width(col); ok {
 				box.Width(w)
 			} else {
@@ -222,7 +225,12 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 			case End:
 				box.Justify(End)
 			}
-			box.Children(func() { fill(j) })
+			box.Children(func() {
+				fill(j)
+				if role == RoleColumnHeader && s.HeaderCell != nil {
+					s.HeaderCell(wrapElement(box), j)
+				}
+			})
 			if menu := s.CellMenu; menu != nil && role == RoleCell && c.row != nil {
 				row := c.row.i
 				box.ContextMenu(func(m *Menu) { menu(m, row, j) })
@@ -232,18 +240,34 @@ func table(c *context, s *ListState, columns []TableColumn, n int, cell func(row
 				// header with its whole row; the Cursor's, in the row the
 				// keys move from, has a border while the table has the
 				// focus. A cell holding the focus, as an editor in it, shows
-				// what it holds.
+				// what it holds. CellsStyle paints the block in its own
+				// colors instead.
 				on := c.row.chosen && k >= lo && k <= hi && (!col.RowHeader || s.Cells.All)
 				at := k == cur && *s.cursor() == c.row.i
 				box.checked = 1 + int8(b2f(on))
+				style := s.CellsStyle
+				bg, fg := c.accent(t), t.AccentText
+				if style.Cell != Transparent {
+					bg = style.Cell
+				}
+				if style.CellText != Transparent {
+					fg = style.CellText
+				}
 				switch {
 				case !on && !at, box.FocusWithin():
 				case on && at:
-					box.Background(c.accent(t)).TextColor(t.AccentText).DrawOver(cursorBorder(table, t.AccentText))
+					// The border in the text's color, on the cell's own.
+					box.Background(bg).TextColor(fg).DrawOver(cursorBorder(table, fg))
 				case on:
-					box.Background(c.accent(t)).TextColor(t.AccentText)
+					box.Background(bg).TextColor(fg)
 				case at:
-					box.DrawOver(cursorBorder(table, t.Accent))
+					// The border in the block's own color, the accent
+					// without one.
+					border := style.Cell
+					if border == Transparent {
+						border = t.Accent
+					}
+					box.DrawOver(cursorBorder(table, border))
 				}
 			}
 			if drag.fit != "" && drag.fit == col.id() {

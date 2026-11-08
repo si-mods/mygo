@@ -1,12 +1,54 @@
 package ui
 
 import (
+	"bytes"
+	"image"
+	"math"
 	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/internal/platform"
 )
+
+// SetDrawMenus makes the window draw its popup menus (SetMenuPresentation
+// with PopoverMenus) or show the system's (SystemMenus). It stays until
+// set again; off, the default, the system shows the menus:
+//
+//	c.SetDrawMenus(runtime.GOOS != "darwin")
+//
+// SetMenuPresentation is the same switch, with the two presentations
+// named. SetDrawMenus remains so callers written against the bool keep
+// compiling.
+func (c *context) SetDrawMenus(on bool) {
+	p := SystemMenus
+	if on {
+		p = PopoverMenus
+	}
+	if c.rt.menuPresentation == p {
+		return
+	}
+	c.SetMenuPresentation(p)
+	if !on {
+		if d := c.rt.menu.drawn; d != nil && d.edit {
+			c.rt.menu.drawn = nil
+		}
+	}
+}
+
+// DrawMenus reports whether the window draws its popup menus
+// (SetDrawMenus, SetMenuPresentation with PopoverMenus).
+func (c *context) DrawMenus() bool { return c.rt.drawsMenus() }
+
+var noMenuStyle MenuStyle
+
+// menuStyle returns the theme's style of drawn menus, the zero one for none.
+func (t *Theme) menuStyle() *MenuStyle {
+	if t.Menu == nil {
+		return &noMenuStyle
+	}
+	return t.Menu
+}
 
 // PopoverMenu gives the element a context menu, as ContextMenu does, which
 // MyGo draws in the window with the theme's look, as a popover, rather
@@ -41,11 +83,9 @@ import (
 // radio items, as the system's. ContextMenuBase is such a menu without a
 // look, for items of a layout of one's own.
 //
-// PopoverMenuButton draws the menu of a menu button so. Context.SetDrawMenus
-// makes a window draw all its context menus so, and Theme.Menu styles them.
+// PopoverMenuButton draws the menu of a menu button so.
 func (e *node) PopoverMenu(build func(m *Menu)) *node {
 	e.flags |= flagContextMenu
-	e.c.rt.useDrawnMenus()
 	e.buildMenu(false, true, build)
 	e.c.rt.drawMenu(e, build)
 	return e
@@ -77,58 +117,104 @@ func (e *node) PopoverMenu(build func(m *Menu)) *node {
 // menu as PopoverMenu's. The function PopoverMenuButton is a button with
 // such a menu, as MenuButton is one with a menu of the system's, and
 // MenuBase a menu button without a look.
-func (e *node) PopoverMenuButton(build func(m *Menu)) *node {
+//
+// Its options place the menu elsewhere along the button, and let the app
+// open and close it (PopoverMenuButtonOptions): the menu of a toolbar's
+// button at the window's end lines up with the button's end, and closes
+// from an event of the app's:
+//
+//	more.PopoverMenuButton(build, ui.PopoverMenuButtonOptions{
+//		At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd, Open: &app.moreOpen,
+//	})
+func (e *node) PopoverMenuButton(build func(m *Menu), options ...PopoverMenuButtonOptions) *node {
+	if len(options) > 1 {
+		panic("ui: PopoverMenuButton takes at most one PopoverMenuButtonOptions")
+	}
+	var o PopoverMenuButtonOptions
+	if len(options) > 0 {
+		o = options[0]
+	}
 	e.flags |= flagMenuButton | flagClickable | flagFocusable
 	if e.role == RoleAuto || e.role == RoleButton {
 		e.role = RoleMenuButton
 	}
-	e.c.rt.useDrawnMenus()
+	e.opensMenu()
+	rt := e.c.rt
+	var synced *bool
+	if o.Open != nil && e.hasState() {
+		// What *o.Open was as the last build left it: the app changed it
+		// since where they differ.
+		synced = coreLocal(e, menuOpenKey{}, func() bool { return false })
+		if shown := rt.drawsMenuOf(e); *o.Open != *synced && *o.Open != shown {
+			if shown {
+				rt.menu.drawn = nil
+			} else if !e.disabled() {
+				rt.openDrawnMenuBelow(e)
+			}
+			// What was built before may show the menu this one took the
+			// place of: build again.
+			rt.consumed = true
+		}
+	}
 	e.buildMenu(true, true, build)
-	e.c.rt.drawMenu(e, build)
+	if d := rt.menu.drawn; d != nil && d.id == e.id {
+		d.menu.attach = 0
+		if o.At != 0 || o.Self != 0 {
+			d.menu.attach = attachment(1 + min(o.At, AnchorBottomEnd)*15 + min(o.Self, AnchorBottomEnd))
+		}
+	}
+	rt.drawMenu(e, build)
+	if synced != nil {
+		*o.Open = rt.drawsMenuOf(e)
+		*synced = *o.Open
+	}
 	return e
 }
 
-// SetDrawMenus makes the window draw its context menus, those of
-// ContextMenu and of MyGo's own elements (text editing, selectable text,
-// the terminal, Markdown and rich text), as PopoverMenu draws one, in the
-// window with the theme's look (Theme.Menu), rather than the system showing
-// them. They open where the system's do, at the pointer for the secondary
-// button and below the focused element for the menu key or Shift+F10, and
-// have the keys of PopoverMenu's. A menu drawn cannot go past the window's
-// edges and does not float over other windows. The menu of a web view's page
-// stays the system's, as do the menu bar and the tray's menu. The setting
-// stays until set again; off, the default, the system shows the menus:
-//
-//	c.SetDrawMenus(runtime.GOOS != "darwin")
-func (c *context) SetDrawMenus(on bool) {
-	rt := c.rt
-	if rt.drawMenus == on {
-		return
-	}
-	rt.drawMenus = on
-	if on {
-		rt.useDrawnMenus()
-	}
-	if !on {
-		rt.menu.edit = nil
-		if d := rt.menu.drawn; d != nil && d.pre != nil {
-			rt.menu.drawn = nil
-		}
-	}
+// PopoverMenuButtonOptions are how a menu button whose menu MyGo draws in
+// the window (PopoverMenuButton) shows it. The zero options show it below
+// the button, lined up with its start, opened and closed by the user
+// alone.
+type PopoverMenuButtonOptions struct {
+	// At and Self place the menu as AttachTo places an element, its point
+	// Self on the point At of the button's box: AnchorBottomEnd and
+	// AnchorTopEnd line it up with the button's end, below it;
+	// AnchorTopStart and AnchorBottomStart, or AnchorTopEnd and
+	// AnchorBottomEnd, put it above the button; AnchorTopEnd and
+	// AnchorTopStart put it after the button, beside it. Where the window
+	// has no room, it goes to the other side of the button, or the other
+	// way along it, as AttachTo's elements do, keeping its gap from the
+	// button. Both zero (AnchorTopLeft) are the default, AnchorBottomStart
+	// and AnchorTopStart. A menu opened at a point, as a toolbar's
+	// overflow menu opens its buttons' menus, shows there instead.
+	At, Self Anchor
+	// Open, when set, is whether the menu shows, as MenuBase's open: the
+	// button sets it as the menu opens and closes, and the app opens the
+	// menu by setting it to true and closes it by setting it to false
+	// before the button is built, as an event of the app's in the
+	// background does before it updates the window. A menu opened so
+	// takes the focus, with no item highlighted, and gives it back as it
+	// closes. A window shows one such menu at a time: another opening
+	// closes it, which sets *Open to false, as a disabled button, which
+	// opens none, does.
+	Open *bool
 }
 
-// DrawMenus reports whether the window draws its context menus
-// (SetDrawMenus).
-func (c *context) DrawMenus() bool { return c.rt.drawMenus }
+type menuOpenKey struct{}
 
-var noMenuStyle MenuStyle
+// drawsMenuOf reports whether the menu drawn in the window that shows is
+// that of the menu button e (PopoverMenuButton).
+func (rt *engine) drawsMenuOf(e *node) bool {
+	d := rt.menu.drawn
+	return d != nil && d.id == e.id && !d.edit
+}
 
-// menuStyle returns the theme's style of drawn menus, the zero one for none.
-func (t *Theme) menuStyle() *MenuStyle {
-	if t.Menu == nil {
-		return &noMenuStyle
-	}
-	return t.Menu
+// openDrawnMenuBelow opens the drawn menu of the menu button e below it, as
+// the app asked (PopoverMenuButtonOptions.Open), with no item highlighted.
+func (rt *engine) openDrawnMenuBelow(e *node) {
+	d := &drawnMenu{id: e.id}
+	d.menu = menuShown{below: true, opened: rt.frame, levels: []menuLevel{{}}, pointer: [2]float32{rt.pointerX, rt.pointerY}}
+	rt.menu.drawn = d
 }
 
 // MenuParts are the parts of a menu without a look: MenuBase makes its
@@ -181,8 +267,11 @@ type submenu struct {
 type menuShown struct {
 	// below puts a menu button's menu below the button; the others open at
 	// a point, dx and dy from the top left corner of their trigger's box.
+	// attach, when not 0, puts a menu button's elsewhere along the button
+	// (PopoverMenuButtonOptions).
 	below  bool
 	dx, dy float32
+	attach attachment
 	// opened is the frame it opened in, whose presses do not close it, as
 	// the press opening it.
 	opened uint64
@@ -208,14 +297,13 @@ type menuLevel struct {
 
 type menuKey struct{}
 
-// openAt opens the menu of e where the engine was asked to (askMenu), as
-// at holds: below it, or at the point it was right-clicked, on its first
-// item when the keyboard opened it.
-func (s *menuShown) openAt(rt *engine, e *node, mr menuAt) {
-	// From the element's whole box, which the menu attaches to, not its
-	// visible part: one scrolled partly out of view would put it off the
-	// point by as much (#894).
-	b := e.Bounds()
+// openAt opens the menu of an element where the engine was asked to
+// (askMenu): below it, or at the point it was right-clicked, on its first
+// item when the keyboard opened it. b is the element's whole box, which the
+// menu attaches to, not its visible part: one scrolled partly out of view
+// would put it off the point by as much (#894).
+func (s *menuShown) openAt(rt *engine, b Rect) {
+	mr := &rt.menu
 	*s = menuShown{below: mr.below, dx: mr.x - b.X, dy: mr.y - b.Y, opened: rt.frame,
 		levels: append(s.levels[:0], menuLevel{first: mr.key, last: mr.last}), pointer: [2]float32{rt.pointerX, rt.pointerY}}
 }
@@ -257,6 +345,7 @@ func coreMenuBase(c *context, open *bool) *menuParts {
 	b := coreButtonBase(c)
 	b.widget, b.role = "MenuBase", RoleMenuButton
 	b.flags |= flagMenuButton
+	b.opensMenu()
 	m := newMenu(c, b, open, true)
 	b.expanded = *open
 	return m
@@ -295,7 +384,7 @@ func newMenu(c *context, e *node, open *bool, button bool) *menuParts {
 			*open = false
 		default:
 			*open = true
-			s.openAt(rt, e, mr.at())
+			s.openAt(rt, e.Bounds())
 		}
 		rt.consumed = true
 	}
@@ -373,7 +462,8 @@ func (m *menuParts) panel(level int, anchor *node, fn func(panel *node)) *node {
 	panel.flags |= flagFocusable | flagClickable | flagTypeSelect | flagOwnRing | flagScrollY | flagHover
 	switch {
 	case level == 0 && s.below:
-		panel.AttachTo(anchor, AnchorBottomStart, AnchorTopStart)
+		at, self := s.buttonAnchors()
+		panel.AttachTo(anchor, at, self)
 	case level == 0:
 		panel.AttachTo(anchor, AnchorTopStart, AnchorTopStart)
 	default:
@@ -508,8 +598,10 @@ func (m *menuParts) item(role Role, sub bool) *node {
 	}
 	if m.moved && row.Hovered() {
 		// The pointer moved onto it: it is highlighted, and its submenu
-		// opens while those of the others close. The keys go on from it.
+		// opens while those of the others close. The keys go on from it,
+		// and the focus is the pointer's again, as it shows no ring.
 		m.moved = false
+		rt.focusVisible = false
 		s.pointer = [2]float32{rt.pointerX, rt.pointerY}
 		switch {
 		case sub && !open:
@@ -518,7 +610,11 @@ func (m *menuParts) item(role Role, sub bool) *node {
 		case !sub && (lv.hi != row.id || len(s.levels) > level+1):
 			m.highlight(level, row.id)
 		}
-		s.focus = level
+		if rt.focused == row.id || !rt.within(rt.focused, row.id) {
+			// The menu takes the focus back, but from an element inside
+			// the item, as a text input of its content.
+			s.focus = level
+		}
 	}
 	if row.Clicked() {
 		if sub {
@@ -672,6 +768,13 @@ func (m *menuParts) keys(level int, panel *node, choices []*node, groups, stops 
 		if n > 0 {
 			m.highlight(level, choices[(i%n+n)%n].id)
 			s.levels[level].reveal = true
+			if rt.focused != panel.id {
+				// From an element in an item, as a text input of its
+				// content: the menu takes the focus back.
+				s.focus = level
+			}
+			// Moved by the keys: the focus shows, and the item's tip with it.
+			rt.focusVisible = true
 		}
 	}
 	// The stop of the item highlighted: its own, or its group's.
@@ -776,50 +879,89 @@ type drawnMenu struct {
 	built uint64
 	pass  int
 	menu  menuShown
-	// pre is the menu already built, for the editing menu of a text input,
-	// which no function builds; nil for the others.
-	pre *shownMenu
+	// items is the menu as last built, and keys its items' IDs by place
+	// (MenuItem.ID); choose, when not 0, is an item the Tester chose, which
+	// the next build takes.
+	items  *platform.Menu
+	keys   []string
+	choose int
+	// highlighted are the items highlighted as the last pass built the
+	// menu, which the next build's MenuItem.Highlighted reports.
+	highlighted []menuRef
+	// edit is set for the editing menu of a text input or selectable text
+	// (drawEditMenu).
+	edit bool
+	// icons are the bitmaps of its items' icons, by image and tint, as the
+	// menu builds in every frame it shows.
+	icons map[drawnIcon]*Bitmap
 }
 
-// menuDrawer is the code of menus drawn in the window, which the engine
-// reaches through a registered value, so that an app that draws none
-// doesn't link it, as linkedDocuments does for documents.
-type menuDrawer struct {
-	// open opens the drawn menu of e, as asked for.
-	open func(e *node, at menuAt)
-	// draw builds the drawn menu of e while it shows.
-	draw func(e *node, build func(m *Menu))
-	// edit builds the editing menu of a text input that the window draws.
-	edit func()
+// drawnIcon is an icon of a drawn menu in a color: the color of the text
+// for a template image, whose items change it as they are highlighted.
+type drawnIcon struct {
+	icon *platform.MenuIcon
+	tint Color
 }
 
-// useDrawnMenus registers the drawn menus' code with the engine. Only
-// SetDrawMenus and the elements of drawn menus call it.
-func (rt *engine) useDrawnMenus() {
-	if rt.drawer != nil {
-		return
+// icon returns the bitmap of an item's icon in the color of its text, or
+// nil for an image that cannot be decoded.
+func (d *drawnMenu) icon(ic *platform.MenuIcon, text Color) *Bitmap {
+	k := drawnIcon{icon: ic}
+	if ic.Template {
+		k.tint = text
 	}
-	rt.drawer = &menuDrawer{
-		open: rt.openDrawnMenu,
-		draw: rt.drawMenu,
-		edit: rt.drawEditMenu,
+	b, ok := d.icons[k]
+	if !ok {
+		b = menuIconBitmap(ic, text)
+		if d.icons == nil {
+			d.icons = map[drawnIcon]*Bitmap{}
+		}
+		d.icons[k] = b
 	}
+	return b
+}
+
+// menuIconBitmap decodes an icon: a template image in the color tint, with
+// the image's alpha, and others in their own colors.
+func menuIconBitmap(ic *platform.MenuIcon, tint Color) *Bitmap {
+	if !ic.Template {
+		b, err := DecodeBitmap(ic.PNG)
+		if err != nil {
+			return nil
+		}
+		return b
+	}
+	img, _, err := image.Decode(bytes.NewReader(ic.PNG))
+	if err != nil {
+		return nil
+	}
+	r := img.Bounds()
+	out := image.NewNRGBA(r)
+	i := 0
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			_, _, _, a := img.At(x, y).RGBA()
+			out.Pix[i], out.Pix[i+1], out.Pix[i+2] = tint.R, tint.G, tint.B
+			out.Pix[i+3] = uint8((a >> 8) * uint32(tint.A) / 255)
+			i += 4
+		}
+	}
+	return NewBitmap(out)
 }
 
 // openDrawnMenu opens the drawn menu of e, at the point asked for.
-func (rt *engine) openDrawnMenu(e *node, at menuAt) {
+func (rt *engine) openDrawnMenu(e *node) {
 	if !e.hasState() {
 		return
 	}
-	d := &drawnMenu{id: e.id, text: at.text}
-	d.menu.openAt(rt, e, at)
+	d := &drawnMenu{id: e.id, text: rt.menu.text}
+	d.menu.openAt(rt, e.Bounds())
 	rt.menu.drawn = d
 }
 
 // drawMenu builds the menu drawn for e while it shows, as MenuBase or
 // ContextMenuBase with the theme's look: a panel for the menu and each
-// submenu open, holding the items build adds; build is nil for the editing
-// menu of a text input, which shows what drawnMenu.pre holds.
+// submenu open, holding the items build adds.
 func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 	d := rt.menu.drawn
 	if d == nil || d.id != e.id || !e.hasState() || e.c.inert {
@@ -830,17 +972,24 @@ func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 		rt.menu.drawn = nil
 		return
 	}
+	run := &menuRun{collect: true, highlighted: d.highlighted}
 	pm := &platform.Menu{}
-	var commands []string // the editing commands of the items by place
-	if build == nil {
-		pm, commands = d.pre.menu, d.pre.commands
-	} else {
-		run := &menuRun{collect: true}
-		build(&Menu{run: run, menu: pm, rt: rt, text: rt.states[d.text]})
-		commands = run.commands
-	}
+	build(&Menu{run: run, menu: pm, rt: rt, text: rt.states[d.text]})
 	if !slices.ContainsFunc(pm.Items, func(it *platform.MenuItem) bool { return it.Visible && it.Type != platform.MenuItemSeparator }) {
 		rt.menu.drawn = nil
+		return
+	}
+	keys := d.keys
+	d.items, d.keys = pm, run.keys
+	if id := d.choose; id != 0 {
+		rt.menu.drawn = nil
+		if id <= len(keys) && keys[id-1] != "" {
+			// The item with the ID of the one chosen, wherever it is now.
+			id = slices.Index(run.keys, keys[id-1]) + 1
+		}
+		if it := menuItemByID(pm.Items, id); it != nil {
+			rt.drawnChoice(d, run, build, it)
+		}
 		return
 	}
 	c := e.c
@@ -848,11 +997,20 @@ func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 	open := true
 	m := &menuParts{Trigger: e, c: c, open: &open, s: &d.menu, level: -1}
 	var chosen *platform.MenuItem
+	// The item of each row, by the row's element, for the highlight.
+	refs := map[uint64]menuRef{}
 	ms := t.menuStyle()
-	style := func(panel *node) {
+	line := t.Border
+	if ms.Separator != (Color{}) {
+		line = ms.Separator
+	}
+	style := func(panel *node, width float32) {
 		panel.widget = "PopoverMenu"
 		panel.MinWidth(t.Space(45)).Padding(t.Space(1)).Radius(t.Radius+2).Background(t.Background).Border(1, t.Border)
 		panel.Shadow(0, 6, 20, 0, RGBA(0, 0, 0, 0.18))
+		if width > 0 {
+			panel.MaxWidth(max(width, t.Space(45)))
+		}
 	}
 	// The theme's style of the panel, after MyGo set its layout.
 	themed := func(panel *node) {
@@ -860,15 +1018,13 @@ func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 			ms.Panel(wrapElement(panel), m.level)
 		}
 	}
-	line := t.Border
-	if ms.Separator != (Color{}) {
-		line = ms.Separator
-	}
-	var items func(list []*platform.MenuItem)
-	items = func(list []*platform.MenuItem) {
+	var items func(menu *platform.Menu, width float32)
+	items = func(menu *platform.Menu, width float32) {
+		list := menu.Items
 		marks := slices.ContainsFunc(list, func(it *platform.MenuItem) bool {
 			return it.Type == platform.MenuItemCheckbox || it.Type == platform.MenuItemRadio
 		})
+		icons := slices.ContainsFunc(list, func(it *platform.MenuItem) bool { return it.Icon != nil })
 		for _, it := range list {
 			if !it.Visible {
 				continue
@@ -877,13 +1033,19 @@ func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 				coreBox(c).Height(1).Margin(t.Space(1), t.Space(2)).Background(line).Shrink(0)
 				continue
 			}
-			row := m.drawnItem(it, marks)
+			mi := run.items[it.ID-1]
+			row := m.drawnItem(d, it, mi, marks, icons)
+			refs[row.id] = menuRef{seq: it.ID, label: it.Label, key: mi.key}
 			if sub := it.Submenu; it.Type == platform.MenuItemSubmenu && sub != nil {
 				m.Submenu(row, func(panel *node) {
-					style(panel)
+					w, ok := run.widths[sub]
+					if !ok {
+						w = width
+					}
+					style(panel, w)
 					panel.Margin(-t.Space(1)-1, 0, 0, 0)
 					themed(panel)
-					items(sub.Items)
+					items(sub, w)
 				})
 			} else if row.Clicked() {
 				chosen = it
@@ -891,40 +1053,117 @@ func (rt *engine) drawMenu(e *node, build func(m *Menu)) {
 		}
 	}
 	m.Popup(func(panel *node) {
-		style(panel)
+		width := run.widths[pm]
+		style(panel, width)
 		if d.menu.below {
-			// Below the menu button, or above it where the window has no
-			// room, lined up with its start.
-			panel.Margin(t.Space(1), 0, 0, 0)
+			// Apart from the menu button, on the side it shows.
+			at, self := d.menu.buttonAnchors()
+			menuGap(panel, at, self, t.Space(1))
 		}
 		themed(panel)
-		items(pm.Items)
+		items(pm, width)
 	})
 	if !open {
 		rt.menu.drawn = nil
 	} else if d.menu.below {
 		e.expanded = true
 	}
-	if it := chosen; it != nil {
-		if name := commands[it.ID-1]; name != "" {
-			target := d.text
-			if target == 0 {
-				target = d.id
+	if open {
+		// The items highlighted once built, for the next pass's build,
+		// which runs at once when they changed (MenuItem.Highlighted).
+		var hi []menuRef
+		for _, lv := range d.menu.levels {
+			if ref, ok := refs[lv.hi]; ok {
+				hi = append(hi, ref)
 			}
-			rt.menuCommand(target, name)
-			rt.requestFrame()
-		} else {
-			rt.menuChoice(build, it.ID, it.Label, d.text)
 		}
+		if !slices.Equal(hi, d.highlighted) {
+			d.highlighted = hi
+			rt.consumed = true
+		}
+	}
+	if chosen != nil {
+		rt.drawnChoice(d, run, build, chosen)
 	}
 }
 
-// drawnItem builds item it of the menu being drawn, with room for the
-// marks of check box and radio items when marks is set.
-func (m *menuParts) drawnItem(it *platform.MenuItem, marks bool) *node {
+// buttonAnchors returns the points of a menu button's box and of its menu
+// that the menu attaches by (PopoverMenuButtonOptions): below the button,
+// lined up with its start, unless the button asked otherwise.
+func (s *menuShown) buttonAnchors() (at, self Anchor) {
+	if s.attach == 0 {
+		return AnchorBottomStart, AnchorTopStart
+	}
+	return s.attach.anchors()
+}
+
+// menuGap gives a menu attached to its button, its point self on the
+// button's point at, the margin that keeps it gap apart from the button: a
+// top margin below it, a bottom one above it, and one on the side beside
+// it. AttachTo keeps the gap as the menu goes to the other side.
+func menuGap(panel *node, at, self Anchor, gap float32) {
+	rtl := panel.rtl()
+	ax, ay := at.physical(rtl).fractions()
+	sx, sy := self.physical(rtl).fractions()
+	switch {
+	case ay == 1 && sy == 0:
+		panel.Margin(gap, 0, 0, 0)
+	case ay == 0 && sy == 1:
+		panel.Margin(0, 0, gap, 0)
+	case ax == 1 && sx == 0:
+		panel.Margin(0, 0, 0, gap)
+	case ax == 0 && sx == 1:
+		panel.Margin(0, gap, 0, 0)
+	}
+}
+
+// drawnChoice does what item it, chosen from the drawn menu d that build
+// built in run, does: its editing command on the text, or the item's Chosen
+// in build.
+func (rt *engine) drawnChoice(d *drawnMenu, run *menuRun, build func(m *Menu), it *platform.MenuItem) {
+	if name := run.commands[it.ID-1]; name != "" {
+		target := d.text
+		if target == 0 {
+			target = d.id
+		}
+		rt.menuCommand(target, name)
+		rt.requestFrame()
+	} else {
+		rt.menuChoice(build, it.ID, it.Label, run.keys[it.ID-1], d.text)
+	}
+}
+
+// menuItemByID returns the item id of items or of their submenus, or nil.
+func menuItemByID(items []*platform.MenuItem, id int) *platform.MenuItem {
+	for _, it := range items {
+		if it.ID == id {
+			return it
+		}
+		if it.Submenu != nil {
+			if found := menuItemByID(it.Submenu.Items, id); found != nil {
+				return found
+			}
+		}
+	}
+	return nil
+}
+
+// menuItemKey keys the row of an item with an ID (MenuItem.ID) in a drawn
+// menu.
+type menuItemKey struct{ id string }
+
+// drawnItem builds item it of the menu d being drawn, with what mi, the
+// item of the menu's function, adds to it, with room for the marks of
+// check box and radio items when marks is set, and for the icons of the
+// items around it when icons is, so that their labels line up.
+func (m *menuParts) drawnItem(d *drawnMenu, it *platform.MenuItem, mi *MenuItem, marks, icons bool) *node {
 	c := m.c
 	t := c.theme
 	sub := it.Type == platform.MenuItemSubmenu && it.Submenu != nil
+	if mi.key != "" {
+		// The row is the item's wherever it goes among the others.
+		c.nextKey, c.keySet = menuItemKey{mi.key}, true
+	}
 	var row *node
 	switch {
 	case sub:
@@ -948,16 +1187,26 @@ func (m *menuParts) drawnItem(it *platform.MenuItem, marks bool) *node {
 		row.Padding(t.Space(1.5), style.RowPadding)
 	}
 	row.Label(it.Label).Disabled(!it.Enabled)
+	// Assistive technology reads the subtitle, the trailing text and the
+	// tooltip, if any, as the item's description, and the shortcut as its
+	// keys.
+	row.description = joinDescription(joinDescription(it.Subtitle, mi.trailing), it.ToolTip)
+	if it.ToolTip != "" {
+		row.Tooltip(it.ToolTip)
+	}
 	keys := shortcutText(it.Accelerator)
-	row.description = keys
+	row.keyShortcuts = keys
 	color, muted := t.Text, t.TextMuted
+	if mi.danger {
+		color = t.Danger
+	}
 	switch {
 	case !it.Enabled:
 		color = t.TextMuted
 		row.TextColor(color)
 	case row.highlighted && row.expanded && m.s.levels[m.level+1].hi != 0:
 		// The way to the item highlighted in the submenu.
-		row.Background(t.SurfaceHover)
+		row.Background(t.SurfaceHover).TextColor(color)
 	case row.highlighted:
 		color, muted = t.AccentText, t.AccentText
 		bg := t.Accent
@@ -967,7 +1216,12 @@ func (m *menuParts) drawnItem(it *platform.MenuItem, marks bool) *node {
 		if style.HighlightText != (Color{}) {
 			color, muted = style.HighlightText, style.HighlightText
 		}
+		if mi.danger && legibleOn(t.Danger, bg, color) {
+			color = t.Danger
+		}
 		row.Background(bg).TextColor(color)
+	case mi.danger:
+		row.TextColor(color)
 	}
 	rtl := row.rtl()
 	row.Children(func() {
@@ -985,12 +1239,57 @@ func (m *menuParts) drawnItem(it *platform.MenuItem, marks bool) *node {
 				})
 			}
 		}
-		label := coreText(c, it.Label).SingleLine().Grow(1)
-		if style.TextSize > 0 {
-			label.FontSize(style.TextSize)
+		if icons {
+			var b *Bitmap
+			if it.Icon != nil {
+				tint := color
+				accent := row.highlighted && !(row.expanded && m.s.levels[m.level+1].hi != 0)
+				if ic := it.IconColor; ic != nil && it.Enabled && !accent {
+					// Its own color, but on the highlight, the highlight's
+					// text color.
+					tint = Color{R: ic.R, G: ic.G, B: ic.B, A: ic.A}
+				}
+				b = d.icon(it.Icon, tint)
+			}
+			if b == nil {
+				coreBox(c).Size(platform.MenuIconSize, platform.MenuIconSize).Shrink(0)
+			} else {
+				img := coreImage(c, b).Size(platform.MenuIconSize, platform.MenuIconSize).Fit(Contain).Shrink(0)
+				if !it.Enabled && !it.Icon.Template {
+					img.Opacity(0.4)
+				}
+			}
+		}
+		// The label and the subtitle, or the content, take the room left,
+		// down to none, so that a menu of a MaxWidth ends them with an
+		// ellipsis.
+		label := coreColumn(c).Grow(1).Shrink(1).MinWidth(0)
+		label.Children(func() {
+			if mi.content != nil {
+				mi.drawn, mi.hi = true, row.highlighted
+				mi.content(MenuItemContent{Context: makeContext(c), Highlighted: row.highlighted, Disabled: !it.Enabled, Text: color, Muted: muted})
+				mi.drawn = false
+				return
+			}
+			labelText := coreText(c, it.Label).SingleLine()
+			if style.TextSize > 0 {
+				labelText.FontSize(style.TextSize)
+			}
+			if it.Subtitle != "" {
+				subText := coreText(c, it.Subtitle).SingleLine().TextColor(muted).FontSize(t.FontSize - 1)
+				if style.TextSize > 0 {
+					subText.FontSize(style.TextSize - 1)
+				}
+			}
+		})
+		if mi.trailing != "" {
+			trail := coreText(c, mi.trailing).SingleLine().TextColor(muted).Shrink(0).MarginStart(t.Space(4))
+			if style.TextSize > 0 {
+				trail.FontSize(style.TextSize)
+			}
 		}
 		if keys != "" {
-			k := coreText(c, keys).SingleLine().TextColor(muted).MarginStart(t.Space(4))
+			k := coreText(c, keys).SingleLine().TextColor(muted).Shrink(0).MarginStart(t.Space(4))
 			if style.TextSize > 0 {
 				k.FontSize(style.TextSize)
 			}
@@ -1002,6 +1301,35 @@ func (m *menuParts) drawnItem(it *platform.MenuItem, marks bool) *node {
 		}
 	})
 	return row
+}
+
+// legibleOn reports whether text in color fg is legible on bg: its
+// contrast with bg is at least WCAG's 4.5:1, or that of the color text on
+// bg takes, when that is less.
+func legibleOn(fg, bg, text Color) bool {
+	return contrastRatio(fg, bg) >= min(4.5, contrastRatio(text, bg))
+}
+
+// contrastRatio returns WCAG's contrast ratio of two opaque colors, from
+// 1 to 21.
+func contrastRatio(a, b Color) float64 {
+	l1, l2 := relativeLuminance(a), relativeLuminance(b)
+	if l1 < l2 {
+		l1, l2 = l2, l1
+	}
+	return (l1 + 0.05) / (l2 + 0.05)
+}
+
+// relativeLuminance returns WCAG's relative luminance of c, from 0 to 1.
+func relativeLuminance(c Color) float64 {
+	ch := func(v uint8) float64 {
+		s := float64(v) / 255
+		if s <= 0.04045 {
+			return s / 12.92
+		}
+		return math.Pow((s+0.055)/1.055, 2.4)
+	}
+	return 0.2126*ch(c.R) + 0.7152*ch(c.G) + 0.0722*ch(c.B)
 }
 
 // shortcutText writes an accelerator (accelerator) as a menu shows it by

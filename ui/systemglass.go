@@ -101,6 +101,13 @@ func (g SystemGlass) String() string {
 	return s
 }
 
+// isSystemGlass reports whether e's material is the system's glass, which
+// paints a hole in the window and so cannot fade inside a layer.
+func isSystemGlass(e *node) bool {
+	_, ok := e.material.(SystemGlass)
+	return ok
+}
+
 // systemGlassHost is a host whose window can show ui.SystemGlass, under
 // web views. It is separate from the host's placeGlass, which places
 // native panes above web views (Glass{Native: true}).

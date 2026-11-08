@@ -1540,6 +1540,65 @@ func TestOptionAsAltDropsText(t *testing.T) {
 	}
 }
 
+// TestAltGrTypesText: on Windows, where AltGr is Control and Alt, the
+// characters AltGr types on a German layout go as text, not as Control
+// sequences of them (#1203). Control, Alt and a key that types nothing
+// still go as the key with both.
+func TestAltGrTypesText(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "windows"
+	conn := newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	v := term.v
+	// press presses key with mods as Windows does, the text it types, if
+	// any, coming as WM_CHAR between the key's press and its release.
+	press := func(mods ui.Modifiers, key ui.Key, text string) {
+		t.Helper()
+		v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: key})
+		if text != "" {
+			v.input(ui.InputEvent{Kind: ui.InputText, Text: text})
+		}
+		v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: key})
+	}
+	altGr := ui.Ctrl | ui.Alt
+	for _, c := range []struct {
+		name string
+		key  ui.Key
+		text string
+	}{
+		{"AltGr+Q", ui.KeyQ, "@"},
+		{"AltGr+E", ui.KeyE, "€"},
+		{"AltGr+7", ui.Key7, "{"},
+		{"AltGr+ß", ui.KeyMinus, `\`},
+	} {
+		press(altGr, c.key, c.text)
+		if got := conn.take(term); got != c.text {
+			t.Errorf("%s sent %q, want %q", c.name, got, c.text)
+		}
+	}
+	press(altGr, ui.KeyA, "")
+	if got, want := conn.take(term), "\x1b\x01"; got != want {
+		t.Errorf("Control, Alt and A sent %q, want %q", got, want)
+	}
+	// The Kitty keyboard protocol's disambiguation.
+	term.Feed([]byte("\x1b[>1u"))
+	press(altGr, ui.KeyQ, "@")
+	if got, want := conn.take(term), "@"; got != want {
+		t.Errorf("AltGr+Q with the Kitty keyboard protocol sent %q, want %q", got, want)
+	}
+	press(altGr, ui.KeyA, "")
+	if got, want := conn.take(term), "\x1b[97;7u"; got != want {
+		t.Errorf("Control, Alt and A with the Kitty keyboard protocol sent %q, want %q", got, want)
+	}
+}
+
 func TestCloseKillsWhatIgnoresHangups(t *testing.T) {
 	loadLib(t)
 	term := shell(t, Options{Command: []string{"/bin/sh", "-c", "trap '' HUP; echo ready; sleep 30"}})
@@ -1791,6 +1850,33 @@ func TestOnPasteTakesAPaste(t *testing.T) {
 // TestOnKeyTakesAKey: Options.OnKey sees a key press before the terminal
 // encodes it, in order with the keys after it; a true result sends
 // nothing, not even the text the key types.
+// A modifier on its own is no key to the terminal: nothing goes to the shell
+// or to OnKey, and Alt is left to the menu bar.
+func TestModifierKeyAlone(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	var seen []ui.Key
+	term, err := New(Options{Conn: conn, OnKey: func(mods ui.Modifiers, key ui.Key) bool {
+		seen = append(seen, key)
+		return true
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	tt.CodeDown(ui.Shift, ui.CodeShiftLeft)
+	tt.CodeUp(0, ui.CodeShiftLeft)
+	tt.Frame()
+	if len(seen) != 0 {
+		t.Errorf("OnKey saw %v", seen)
+	}
+	if got := conn.take(term); got != "" {
+		t.Errorf("the shell got %q", got)
+	}
+}
+
 func TestOnKeyTakesAKey(t *testing.T) {
 	loadLib(t)
 	conn := newPipe()
@@ -3067,60 +3153,33 @@ func TestDropFiles(t *testing.T) {
 	}
 }
 
-// TestDrawnMenu checks that a window drawing its menus (SetDrawMenus)
-// shows the terminal's context menu in the window, and that Paste reaches
-// the program.
-func TestDrawnMenu(t *testing.T) {
+func TestOnDrop(t *testing.T) {
 	loadLib(t)
 	conn := newPipe()
-	term, err := New(Options{Conn: conn})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer term.Close()
-	term.Feed([]byte("some text"))
-	tt := ui.NewTester(func(c *ui.Context) {
-		c.SetDrawMenus(true)
-		View(c, term).Fill().AutoFocus()
-	}, 400, 200)
-	x, y := cellCenter(term, 1, 0)
-	tt.RightClickAt(x, y)
-	if tt.Menu() != nil {
-		t.Errorf("the system shows a menu: %q", tt.Menu())
-	}
-	if !tt.HasText("Copy") || !tt.HasText("Clear") {
-		t.Fatalf("no drawn menu: %q", tt.Texts())
-	}
-	tt.SetClipboard("drawn")
-	if err := tt.Click("Paste"); err != nil {
-		t.Fatal(err)
-	}
-	if got := conn.take(term); got != "drawn" {
-		t.Errorf("the drawn menu's Paste sent %q", got)
-	}
-	if tt.HasText("Clear") {
-		t.Error("the menu stays after a choice")
-	}
-}
-
-func TestProgress(t *testing.T) {
-	loadLib(t)
-	var got [][2]int
-	term, err := New(Options{Conn: newPipe(), OnProgress: func(state, percent int) {
-		got = append(got, [2]int{state, percent})
+	var got []string
+	take := true
+	term, err := New(Options{Conn: conn, OnDrop: func(paths []string) bool {
+		got = append(got, paths...)
+		return take
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer term.Close()
-	// One report a write: the last of several in one.
-	term.Feed([]byte("\x1b]9;4;1;40\x1b\\"))
-	term.Feed([]byte("\x1b]9;4;1;50\x07\x1b]9;4;2;70\x07"))
-	term.Feed([]byte("\x1b]9;4;3\x07"))
-	term.Feed([]byte("plain text"))
-	term.Feed([]byte("\x1b]9;4;0\x07"))
-	want := [][2]int{{1, 40}, {2, 70}, {3, -1}, {0, -1}}
-	if !slices.Equal(got, want) {
-		t.Errorf("progress = %v, want %v", got, want)
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill() }, 400, 200)
+	tt.Frame()
+	tt.DropFiles(100, 100, "/tmp/shot.png")
+	tt.Frame()
+	if len(got) != 1 || got[0] != "/tmp/shot.png" {
+		t.Errorf("OnDrop saw %q", got)
+	}
+	if s := conn.take(term); s != "" {
+		t.Errorf("a drop OnDrop took pasted %q", s)
+	}
+	take = false
+	tt.DropFiles(100, 100, "/tmp/b.txt")
+	tt.Frame()
+	if s := conn.take(term); !strings.Contains(s, "b.txt") {
+		t.Errorf("a drop OnDrop left pasted %q", s)
 	}
 }

@@ -260,8 +260,11 @@ type swapChainDesc1 struct {
 }
 
 type texture struct {
-	tex, srv  uintptr
-	rtv       uintptr // of a texture drawn into
+	tex, srv uintptr
+	rtv      uintptr // of a texture drawn into
+	// chroma is the texture of the chroma of a frame of video in NV12,
+	// whose luma this is (see video.go), or nil.
+	chroma    *texture
 	w, h      int
 	gen, ver  uint64
 	lastFrame uint64
@@ -341,7 +344,9 @@ type Renderer struct {
 
 	mask, color texture
 	images      map[uint64]*texture
+	video       videoState
 	frame       uint64
+	swept       uint64 // the frame of the last sweep
 	// canvases are the textures canvases are drawn into, and drawing the
 	// render target drawn into now: the back buffer's, or a canvas's.
 	canvases map[uint64]*canvasTexture
@@ -815,10 +820,11 @@ func (r *Renderer) Release() {
 		call(r.ctx, ctxFlush)
 	}
 	for _, t := range r.images {
-		free(&t.srv)
-		free(&t.tex)
+		freeTexture(t)
 	}
 	r.images = nil
+	r.releaseShared()
+	r.sweepShared(true)
 	for _, t := range r.canvases {
 		freeCanvas(t)
 	}
@@ -911,7 +917,16 @@ func (r *Renderer) imageView(img *scene.Image) uintptr {
 		}
 		return 0
 	}
+	if s := img.Surface; s != nil && (s.Native != 0 || s.Format == scene.SurfaceNV12 && s.Planes[1].Pix != nil) {
+		return r.surfaceView(img, s)
+	}
 	t := r.images[img.ID()]
+	if t != nil && t.chroma != nil {
+		// It showed a frame of video in planes, and no longer does.
+		freeTexture(t)
+		delete(r.images, img.ID())
+		t = nil
+	}
 	if t == nil {
 		pix := img.Pixels()
 		if pix == nil {
@@ -1016,6 +1031,7 @@ func (r *Renderer) draw(s *scene.Scene) error {
 // changed since the last frame when the swap chain shows that one, and
 // reports whether it drew: a frame that changed nothing draws nothing.
 func (r *Renderer) drawFrame(s *scene.Scene) (bool, error) {
+	defer r.releaseShared()
 	r.frame++
 	r.used = 0
 	if err := r.resize(s.Width, s.Height); err != nil {
@@ -1150,9 +1166,9 @@ func (r *Renderer) drawScene(s *scene.Scene, b *gpu.Builder, rtv uintptr) error 
 // buildScene builds the instances of s with b, with the textures they
 // read, for the render target r.drawing, and returns the scene built.
 func (r *Renderer) buildScene(s *scene.Scene, b *gpu.Builder) (*scene.Scene, error) {
-	b.BlurredImage = r.blurImage
+	b.BlurredImage, b.Chroma = r.blurImage, r.chromaView
 	s = b.Build(s, r.imageView)
-	b.BlurredImage = nil
+	b.BlurredImage, b.Chroma = nil, nil
 	if err := r.syncStops(b); err != nil {
 		return nil, err
 	}
@@ -1244,6 +1260,10 @@ func (r *Renderer) drawBuilt(s *scene.Scene, b *gpu.Builder, rtv uintptr, part *
 		if bt.Image != 0 && bt.Image != bound {
 			bound = bt.Image
 			call(ctx, ctxPSSetShaderResources, 2, 1, uintptr(unsafe.Pointer(&bound)))
+			if bt.Chroma != 0 {
+				chroma := bt.Chroma
+				call(ctx, ctxPSSetShaderResources, 11, 1, uintptr(unsafe.Pointer(&chroma)))
+			}
 		}
 		if bt.ClipMask != mask {
 			mask = bt.ClipMask
@@ -1792,7 +1812,8 @@ func (r *Renderer) show(sync uintptr) error {
 	// window made hidden, may not be what the window shows once it does:
 	// the next frame draws whole.
 	r.held = r.ctx1 != 0 && uint32(hr) != dxgiStatusOccluded
-	if r.frame%120 == 0 {
+	if r.frame-r.swept >= sweepEvery {
+		r.swept = r.frame
 		r.sweep()
 		r.cost.readPeriod()
 	}
@@ -1810,17 +1831,23 @@ func (r *Renderer) FrameInfo() string {
 	return r.b.Summary()
 }
 
+// sweepEvery is how many frames go by between sweeps. show sweeps once
+// that many went by since the last sweep, rather than at each multiple of
+// it: frames that change nothing count too and present nothing, so an
+// animation that changes every other frame could present none of the
+// multiples, and never sweep.
+const sweepEvery = 120
+
 // sweep frees the textures of images no frame drew for a while, and
-// those of canvases gone, or transient and not drawn this frame: render
-// calls it every 120 frames.
+// those of canvases gone, or transient and not drawn this frame.
 func (r *Renderer) sweep() {
 	for id, t := range r.images {
 		if r.frame-t.lastFrame > 240 {
-			free(&t.srv)
-			free(&t.tex)
+			freeTexture(t)
 			delete(r.images, id)
 		}
 	}
+	r.sweepShared(false)
 	for id, t := range r.canvases {
 		if c := t.canvas.Value(); c == nil || c.Transient && t.lastFrame != r.frame {
 			freeCanvas(t)

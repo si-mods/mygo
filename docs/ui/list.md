@@ -70,7 +70,11 @@ behaves and to move it:
   does; scrolling back to the end follows it again. `FollowAnimation`
   makes it glide there, as a spring (`&ui.Smooth`) or a curve, rather
   than show the end at once: what is added comes up from below, as the
-  chat apps scroll, and the user scrolling stops it.
+  chat apps scroll, and the user scrolling stops it. Each layout reads
+  `FollowEnd` as it is then, and `HoldPlace` keeps the list where it is
+  for the next layout alone: call it in the frame a click opens a fold in
+  the last message, and the line clicked stays under the pointer rather
+  than following the end as the row grows.
 - `Header` names the rows heading sections: the header of the section at
   the top stays pinned there while its rows scroll under it, until the next
   header pushes it away. Give headers a background.
@@ -86,7 +90,12 @@ building the list.
 - `Selected` lets a click, or Up, Down, Home and End while the list has the
   keyboard focus (and Page Up and Page Down on Linux and Windows), choose a
   row, which shows in the accent color; the list's `Changed` reports a new
-  choice, and `Submitted` a double click or Enter.
+  choice, and `Submitted` a double click or Enter. `-1` is no row chosen.
+  With a `Key`, the choice follows its item as rows are added, removed or
+  sorted, and becomes `-1` when its item leaves the rows. The list writes
+  that as it builds, in the same pass, so what you build after the list
+  (a detail panel reading the chosen row) must take `-1` as none. Without
+  a `Key`, the choice stays at its index.
 - `Selection` lets the user choose several rows, held in a
   `ui.Selection[K]` by the keys of their items (`Key`), or by their indices
   without one: a click chooses one, Cmd-click (Ctrl-click on Linux and
@@ -95,6 +104,23 @@ building the list.
   Linux and Windows, Ctrl with the keys moves without choosing, and
   Ctrl+Space adds the row there or takes it out. `Selected`, set as well, is
   the row last chosen.
+
+A table and the editor of its chosen row below it:
+
+```go
+app.list.Key = func(i int) any { return app.cols[i].Name }
+app.list.Selected = &app.colRow
+ui.List(c, &app.list, len(app.cols), func(i int) {
+	ui.Text(c, app.cols[i].Name).Padding(6, 12)
+}).Grow(1)
+if app.colRow >= 0 { // -1 once another table's columns replaced the chosen one
+	columnEditor(c, &app.cols[app.colRow])
+}
+```
+
+When the same list shows another set of rows, as another table's, start
+its state afresh (`app.list = ui.ListState{}`) so that it forgets the item
+chosen before and the place it scrolled to.
 
 Files to choose several of, by their paths:
 
@@ -172,6 +198,35 @@ ui.List(c, &app.list, len(app.files), func(i int) {
 	}
 })
 ```
+
+Rows that draw their own hover and press, as a chat list's, ask the row
+built with `Rows` rather than an element of their own: `ListRow`'s
+`Hovered`, `Pressed` and `PointerPosition` report the row's, as the
+row's element would. `Pressed` or `Hovered` on an element inside the row
+would make that element take the press, and the row would not choose,
+nor would `Tester.Click` on the row's `Label` reach it. A press starts a
+ripple where the pointer went down:
+
+```go
+ui.List(c, &app.chats, len(app.items)).Grow(1).Rows(func(row ui.ListRow) {
+	bg := ui.Transparent
+	switch {
+	case row.Pressed():
+		bg = row.Context.Theme().SurfacePressed
+		if app.ripple.Row != row.Index {
+			x, y, _ := row.PointerPosition()
+			app.ripple = Ripple{Row: row.Index, X: x, Y: y, At: time.Now()}
+		}
+	case row.Hovered():
+		bg = row.Context.Theme().SurfaceHover
+	}
+	ui.Box(row.Context).Background(bg).Padding(8, 12).Children(func() {
+		ui.Text(row.Context, app.items[row.Index].Title)
+	})
+})
+```
+
+In a list that chooses no rows, `Pressed` makes the row take the press.
 
 ## Scrolling
 
@@ -263,7 +318,8 @@ Call `app.list.Handle.Focus()` on the UI thread to request focus, or
 list and `FocusWithin(c)` includes its descendants. A handle's shortcut
 action runs after construction only if its enabled control is present.
 
-`ListRow` supplies the current Context, row index, selection and list focus.
+`ListRow` supplies the current Context, row index, selection and list focus,
+and the row's hover and press (see [choosing rows](#choosing-rows)).
 `ListState.Selected` or `Selection` enables selection. `ItemKey` gives each
 item a stable key. Configure them before calling Rows.
 
@@ -284,6 +340,8 @@ the rows it is, "5 of 10,000", although the list builds only those in view.
 A list choosing its rows gives assistive technology the focus on the row
 chosen: Up and Down are read as they move the choice, and focusing a row
 chooses it. A screen reader moving out of view asks the list to scroll
-there, which builds the rows it reaches.
+there, which builds the rows it reaches. A list of rows of cells, as a
+spreadsheet's, is a [grid](accessibility.md#grids) with
+`Role(ui.RoleGrid)`: its rows are then rows of a table.
 
 For rows in columns, see [Table](table.md); for a tree, [Outline](outline.md).
