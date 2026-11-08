@@ -2,11 +2,11 @@
 // Ghostty's sources at a commit, with Zig (the version Ghostty asks for),
 // and writes mygo-plugin.json, which names the files and their SHA-256 for
 // the CLI and the terminal package, and ghostty_themes.go, the themes that
-// Ghostty ships:
+// Ghostty ships and its version:
 //
 //	go generate ./plugins/terminal
 //
-// With -themes, it only writes the themes, which needs no Zig.
+// With -themes, it only writes ghostty_themes.go, which needs no Zig.
 //
 // The files go into plugins/terminal/build, to publish as the assets of the
 // release libghostty-vt-<commit>, which mygo-plugin.json points at:
@@ -55,7 +55,7 @@ func main() {
 	src := flag.String("src", "", "a checkout of Ghostty, at the commit (cloned into the user's cache when empty)")
 	out := flag.String("out", "build", "the directory of the libraries")
 	release := flag.String("release", "https://github.com/si-mods/mygo/releases/download/libghostty-vt-"+commit[:12], "the URL of the release hosting the libraries")
-	themes := flag.Bool("themes", false, "only write the themes")
+	themes := flag.Bool("themes", false, "only write ghostty_themes.go")
 	flag.Parse()
 	if *themes {
 		writeThemes(*src)

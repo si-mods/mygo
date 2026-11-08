@@ -2,6 +2,10 @@
 
 package terminal
 
+// GhosttyVersion is the version of the Ghostty whose libghostty-vt this
+// package binds.
+const GhosttyVersion = "1.4.1-dev"
+
 // ghosttyThemes are the themes the Ghostty this package binds ships, from
 // iTerm2-Color-Schemes (https://github.com/mbadolato/iTerm2-Color-Schemes),
 // as ghostty-themes-release-20261026-153024-27cbbb5.tgz has them:
