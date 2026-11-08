@@ -43,7 +43,7 @@ func TestDrawMenusContextMenu(t *testing.T) {
 	if !tt.HasText("Open") || !tt.HasText("Delete") {
 		t.Fatalf("no drawn menu: %q", tt.Texts())
 	}
-	if tt.Menu() != nil {
+	if tt.h.menu != nil {
 		t.Errorf("the system shows a menu too: %q", tt.Menu())
 	}
 	if err := tt.Click("Delete"); err != nil {
@@ -81,7 +81,7 @@ func TestDrawMenusEditingMenu(t *testing.T) {
 	a := &drawApp{draw: true, value: "hello"}
 	tt := coreNewTester(a.view, 400, 300)
 	tt.RightClick("Name")
-	if tt.Menu() != nil {
+	if tt.h.menu != nil {
 		t.Errorf("the system shows a menu: %q", tt.Menu())
 	}
 	if !tt.HasText("Select All") || !tt.HasText("Paste") {
@@ -289,7 +289,7 @@ func TestDrawMenusEditMenuAsksForAFrame(t *testing.T) {
 	tt.rt.inFrame, tt.rt.pass = true, 2
 	tt.rt.editMenu(s)
 	tt.rt.inFrame = false
-	if tt.rt.menu.edit == nil {
+	if d := tt.rt.menu.drawn; d == nil || !d.edit {
 		t.Fatal("the editing menu was not kept for a pass")
 	}
 	if !tt.h.requested.Load() {
@@ -339,7 +339,10 @@ func TestDrawMenusEditMenuOfAnElementNotBuiltYet(t *testing.T) {
 	s := focusedText(t, tt)
 	rt := tt.rt
 	rt.editMenu(s)
-	rt.menu.edit.id = 987654321 // not in the view or its overlays
+	if rt.menu.drawn == nil {
+		t.Fatal("the editing menu was not kept")
+	}
+	rt.menu.drawn.id = 987654321 // not in the view or its overlays
 	tt.Frame()
 	if got := tt.Menu(); len(got) == 0 {
 		t.Fatal("no menu at all: the editing menu was dropped")

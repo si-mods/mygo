@@ -248,7 +248,9 @@ Other properties:
   regular apps there, but [panels](#panels).
 - `SetContentProtection(true)` keeps it out of screenshots and screen
   recordings.
-- `SetIgnoreMouseEvents(true)` lets clicks through to what is behind it.
+- `SetIgnoreMouseEvents(true)` lets clicks through to what is behind it,
+  and `SetInputRegion` all of them but those on parts of it (see
+  [click-through windows](#click-through-windows)).
 - `SetActiveAppearance(true)` keeps the window drawn as active while
   another app is in front (macOS), so that the clear Liquid Glass
   (`VibrancyGlassClear`) of a panel floating over it stays clear. It uses a
@@ -648,6 +650,54 @@ keys from the start: it is blurred only as it hides, so close it on
 Escape, which the user presses there. Elsewhere, as on GNOME, which has no
 layer shell, it is a window as others: the compositor decides where it
 shows and what is above it.
+
+## Click-through windows
+
+A desktop pet is a frameless, transparent window always on top, which
+shows a character, and a speech bubble now and then: clicks on them reach
+the app, and clicks anywhere else the window or the desktop under it, as
+if the pet's window were not there. `SetInputRegion` gives the window the
+rectangles that take the mouse, in DIPs from the top-left corner of its
+content; presses, moves and the wheel elsewhere go through to what is
+behind it:
+
+```go
+pet := mygo.NewWindow(mygo.WindowOptions{
+	Frameless:   true,
+	Transparent: true,
+	AlwaysOnTop: true,
+	SkipTaskbar: true,
+	Width:       320,
+	Height:      240,
+	Content:     ui.View(app.pet),
+})
+character := mygo.Rectangle{X: 200, Y: 120, Width: 110, Height: 110}
+pet.SetInputRegion([]mygo.Rectangle{character})
+
+// The bubble shows: it takes clicks too, until it goes.
+pet.SetInputRegion([]mygo.Rectangle{character, {X: 10, Y: 10, Width: 220, Height: 90}})
+```
+
+Set the region again as what takes clicks moves or changes size: the
+rectangles stay where they were in the window, which may move as a whole
+(`SetPosition`, or `StartDrag` from the character). A page finds its
+rectangles with `getBoundingClientRect` and sends them through a bound
+method; native UI with an element's `Bounds`. `SetInputRegion(nil)` gives
+the window the mouse everywhere again, as it starts, and an empty slice
+lets it all through, as `SetIgnoreMouseEvents(true)` does, which wins
+over the region while it is set. `PassThrough` in native UI is another
+thing: it lets the pointer through an element to what the window shows
+under it, never to another window.
+
+How each platform does it:
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| region | the window lets the mouse through (`ignoresMouseEvents`) while the pointer is outside the rectangles, switched as it moves, from monitors of the pointer's moves in the app and in other apps | the window's input shape: X11's SHAPE extension, Wayland's input region | the window lets the mouse through (layered, `WS_EX_TRANSPARENT`) while the cursor is outside the rectangles, which a timer asks at each tick of the system's clock (15.6 ms) while the window shows |
+
+On macOS and Windows a button held keeps the window as it is: a drag that
+started on the character ends there, as one that started on what is
+behind ends there, and the release settles which takes the mouse next.
 
 ## Events
 
@@ -1249,6 +1299,29 @@ pid := win.Page().ProcessID()
 
 It is 0 too before the web view has started a process, after the window
 closed, and for a window showing native UI.
+
+`GPUProcessID` returns the ID of the process that does the page's graphics
+and media. On macOS that is where the page's sound comes out, so an app
+that shows what a page plays (a music player's visualizer, say) can capture
+it with a Core Audio process tap (`CATapDescription`, macOS 14.2 and
+later), which needs the process's ID:
+
+```go
+pid := win.Page().GPUProcessID()
+```
+
+| Platform | The process |
+|---|---|
+| macOS | WebKit's GPU process (`com.apple.WebKit.GPU`), which plays the page's audio and video, from WebKit's private `_gpuProcessIdentifier`; 0 if WebKit doesn't answer it or hasn't started the process yet, which it does once a page first needs it, to play media or draw with the GPU |
+| Windows | WebView2's GPU process (`msedgewebview2.exe --type=gpu-process`), a child of `ProcessID`'s browser process, from `ICoreWebView2Environment8`'s `GetProcessInfos`; 0 on runtimes without it. WebView2 plays sound from its audio service, a utility process, not this one: capture the tree of `ProcessID`'s process for it (process loopback) |
+| Linux | none: WebKitGTK has no API for its GPU process, so it is always 0 |
+| Browsers | none: always 0 |
+
+It is 0 too before the web view has started a process, after the window
+closed, and for a window showing native UI. The app's web views may share
+the process, and it gets a new ID each time the app runs and whenever the
+web view starts it again, after it crashed or exited, so ask again rather
+than keep the ID.
 
 ## Finding windows
 

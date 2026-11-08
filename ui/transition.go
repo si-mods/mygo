@@ -162,6 +162,7 @@ const defaultDuration = 200 * time.Millisecond
 func (e *node) Transition(t ElementTransition) *node {
 	e.c.transitions = append(e.c.transitions, transitionUse{e: e, t: t})
 	linkShadows.Do(func() { animateShadows = (*engine).animateShadows })
+	linkGroups() // its fades
 	if t.Match != nil || t.ScaleContent {
 		e.c.rt.linkMatches()
 	}
@@ -288,7 +289,10 @@ type transition struct {
 	target, next, shown tbox
 	ch                  [8]channel
 	moving              uint8
-	fresh               bool
+	// entering is the components of moving that the Enter set going, not
+	// a move of the layout: what an AttachTo panel adds to its place.
+	entering uint8
+	fresh    bool
 	// held keeps the element appearing unseen while copies of its
 	// siblings leave (AfterExits), and focus the keyboard focus given to
 	// it meanwhile, which it takes as it shows.
@@ -465,7 +469,7 @@ func (r *transition) rest(b tbox, now time.Time) {
 	for i, v := range b.vals() {
 		r.ch[i] = channel{value: float64(v), target: float64(v), at: now}
 	}
-	r.moving, r.collapse = 0, 0
+	r.moving, r.entering, r.collapse = 0, 0, 0
 }
 
 // sample moves the channels to now, and returns where they show the
@@ -488,6 +492,7 @@ func (r *transition) sample(target tbox, now time.Time) tbox {
 		v[i] = float32(ch.value)
 	}
 	r.moving &^= still
+	r.entering &= r.moving
 	if r.moving == 0 {
 		r.collapse = 0
 		return target
@@ -700,6 +705,7 @@ func (rt *engine) animateLayout(root *node, w, h float32) {
 			}
 			if changed != 0 {
 				r.head(next, changed, now)
+				r.entering &^= changed
 			}
 		}
 		r.target, r.laid = next, rt.frame
@@ -753,6 +759,7 @@ func (r *transition) enter(e *node, next tbox, still bool, now time.Time) {
 	r.rest(next.moved(m, axis, still), now)
 	r.collapse = axis
 	r.head(next, moveAll, now)
+	r.entering = moveAll
 }
 
 // show shows e where r's channels have it now, on its way to r.target.
@@ -1006,6 +1013,9 @@ func ghostOf(e *node) *node {
 	*g = *e
 	st := *e.st
 	st.trec = nil
+	// Its layer too (effectLayer), as an element taking the state in its
+	// place paints into its own: a canvas shows one content a frame.
+	st.effectLayer = nil
 	// Its spans, and the styles they paint with, are its own: another
 	// element taking its state in its place, in this frame, made the
 	// state's its own already. A paragraph's spans are in a buffer of the
@@ -1020,6 +1030,7 @@ func ghostOf(e *node) *node {
 	g.shadows, g.cols, g.rows, g.frags = slices.Clone(e.shadows), slices.Clone(e.cols), slices.Clone(e.rows), slices.Clone(e.frags)
 	g.track, g.popover, g.list, g.rowsOf, g.overflow = nil, nil, nil, nil, nil
 	g.activeDescendant, g.nameFrom, g.focusTo, g.field, g.form = nil, nil, nil, nil, nil
+	g.describedBy, g.errorMessage = nil, nil
 	g.followX, g.colFit, g.gridFit = nil, nil, nil
 	// It no longer flies (Fly), if it did: it goes as its parent's copy.
 	g.inputFn, g.observeFn, g.ghosts, g.lift = nil, nil, false, false
