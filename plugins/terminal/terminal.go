@@ -1149,7 +1149,7 @@ func (t *Terminal) Images() []byte {
 	}
 	var keys []imageKey
 	t.term.Placements(func(pl vt.Placement) {
-		if pl.Virtual || pl.Visible && pl.Row >= 0 {
+		if pl.Virtual || pl.Row >= 0 {
 			keys = append(keys, keyOf(pl, 0))
 		}
 	})

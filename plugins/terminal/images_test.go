@@ -100,7 +100,7 @@ func placements(term *Terminal) []vt.Placement {
 	defer term.mu.Unlock()
 	var out []vt.Placement
 	term.term.Placements(func(pl vt.Placement) {
-		if pl.Virtual || pl.Visible && pl.Row >= 0 {
+		if pl.Virtual || pl.Row >= 0 {
 			out = append(out, pl)
 		}
 	})
@@ -114,8 +114,10 @@ func placements(term *Terminal) []vt.Placement {
 func TestImagesExport(t *testing.T) {
 	loadLib(t)
 	red, blue := ui.RGB(255, 0, 0), ui.RGB(0, 0, 255)
+	// No view tells the size of a cell in pixels, as on a server: an
+	// image's cells are unknown.
 	a := headless(t)
-	a.Resize(20, 6)
+	a.Resize(80, 24)
 	// Sent again, as a program redrawing at a new size does: the last one
 	// counts.
 	for range 5 {
@@ -128,12 +130,14 @@ func TestImagesExport(t *testing.T) {
 	a.Feed([]byte(kittyImage(10, 2, 2, red, ",U=1,p=3,c=2,r=1")))
 	// Scrolled off, it can be placed again no more.
 	a.Feed([]byte("\x1b[1;1H" + kittyImage(11, 2, 2, red, ",C=1")))
-	a.Feed([]byte("\x1b[6;1H\r\n"))
+	a.Feed([]byte("\x1b[24;1H\r\n"))
+	// At the top, which the cells it takes, unknown, do not tell visible.
+	a.Feed([]byte("\x1b[1;1H" + kittyImage(12, 2, 2, blue, ",C=1")))
 	a.Feed([]byte("\x1b[3;7Hhi"))
 
 	images := a.Images()
-	if n := bytes.Count(images, []byte("a=t,")); n != 3 {
-		t.Errorf("%d images sent, want 3 (7, 8, 10):\n%q", n, images)
+	if n := bytes.Count(images, []byte("a=t,")); n != 4 {
+		t.Errorf("%d images sent, want 4 (7, 8, 10, 12):\n%q", n, images)
 	}
 	for _, want := range []string{"i=7,p=2,", "a=p,U=1,i=10,p=3,c=2,r=1,"} {
 		if !bytes.Contains(images, []byte(want)) {
@@ -147,11 +151,11 @@ func TestImagesExport(t *testing.T) {
 	}
 
 	b := headless(t)
-	b.Resize(20, 6)
+	b.Resize(80, 24)
 	b.Feed(a.Snapshot())
 	b.Feed(images)
 	want, got := placements(a), placements(b)
-	if len(want) != 3 || !slices.Equal(got, want) {
+	if len(want) != 4 || !slices.Equal(got, want) {
 		t.Errorf("placements after the snapshot and images\n%+v, want\n%+v", got, want)
 	}
 	if x, y := cursor(b); x != 8 || y != 2 {
@@ -168,7 +172,7 @@ func TestImagesExport(t *testing.T) {
 	}
 	// What the program sends next acts on them.
 	b.Feed([]byte("\x1b_Ga=d,d=i,i=7,p=2,q=2\x1b\\"))
-	if pl := placements(b); len(pl) != 2 {
+	if pl := placements(b); len(pl) != 3 {
 		t.Errorf("after deleting placement 2 of image 7: %+v", pl)
 	}
 }
