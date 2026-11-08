@@ -7,8 +7,10 @@ import (
 )
 
 // urlPattern finds the URLs programs print as text, which a Command+click
-// opens as it does hyperlinks.
-var urlPattern = regexp.MustCompile(`(?:https?|ftp|file)://[^\s"'<>` + "`" + `\x00-\x1f]+|mailto:[^\s"'<>` + "`" + `]+`)
+// opens as it does hyperlinks. A URL sends what is not ASCII encoded, so it
+// ends at the first such character: the CJK text or full-width punctuation
+// that often follows one without a space.
+var urlPattern = regexp.MustCompile(`(?:(?:https?|ftp|file)://|mailto:)[^\s"'<>` + "`" + `\x00-\x1f\x7f-\x{10ffff}]+`)
 
 // pathPattern finds the file paths programs print as text: absolute, from
 // ~, ./ or ../, with a slash, as a directory docs/ that ends in one, or a
