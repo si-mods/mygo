@@ -46,25 +46,12 @@ func (m *Mirror) images(out *bytes.Buffer, term *vt.Terminal, alt bool, top, row
 	seen := map[imageKey]bool{}
 	var place []imageKey
 	term.Placements(func(pl vt.Placement) {
-		if pl.Virtual {
-			// Placed by its id, which the placeholder cells name.
-			k := imageKey{img: pl.ImageID, id: pl.ID, cols: pl.ParamCols, rows: pl.ParamRows, z: pl.Z, virtual: true}
-			seen[k] = true
-			if _, ok := st.placed[k]; !ok {
-				place = append(place, k)
-			}
+		if !pl.Virtual && !pl.Visible {
 			return
 		}
-		if !pl.Visible {
-			return
-		}
-		k := imageKey{
-			img: pl.ImageID, id: pl.ID, row: top + pl.Row, col: pl.Col, xoff: pl.XOffset, yoff: pl.YOffset,
-			cols: pl.ParamCols, rows: pl.ParamRows,
-			srcX: pl.ParamSrcX, srcY: pl.ParamSrcY, srcW: pl.ParamSrcW, srcH: pl.ParamSrcH, gr: max(pl.Rows, 1), z: pl.Z,
-		}
+		k := keyOf(pl, top)
 		seen[k] = true
-		if _, ok := st.placed[k]; !ok && pl.Row >= 0 {
+		if _, ok := st.placed[k]; !ok && (pl.Virtual || pl.Row >= 0) {
 			place = append(place, k)
 		}
 	})
@@ -109,16 +96,41 @@ func (m *Mirror) images(out *bytes.Buffer, term *vt.Terminal, alt bool, top, row
 			sendImage(out, img)
 			st.gens[k.img] = gen
 		}
-		if k.virtual {
-			fmt.Fprintf(out, "\x1b_Ga=p,U=1,i=%d,p=%d,c=%d,r=%d,z=%d,q=2\x1b\\", k.img, k.id, k.cols, k.rows, k.z)
-			st.placed[k] = k.id
-			continue
+		id := k.id
+		if !k.virtual {
+			m.placement++
+			id = m.placement
 		}
-		m.placement++
-		fmt.Fprintf(out, "\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,X=%d,Y=%d,x=%d,y=%d,w=%d,h=%d,c=%d,r=%d,z=%d,C=1,q=2\x1b\\",
-			k.row-top+1, k.col+1, k.img, m.placement, k.xoff, k.yoff, k.srcX, k.srcY, k.srcW, k.srcH, k.cols, k.rows, k.z)
-		st.placed[k] = m.placement
+		placeImage(out, k, id, top)
+		st.placed[k] = id
 	}
+}
+
+// keyOf returns the key of a placement; top is the screen's first row
+// from the top of the scrollback.
+func keyOf(pl vt.Placement, top int) imageKey {
+	if pl.Virtual {
+		// Placed by its id, which the placeholder cells name.
+		return imageKey{img: pl.ImageID, id: pl.ID, cols: pl.ParamCols, rows: pl.ParamRows, z: pl.Z, virtual: true}
+	}
+	return imageKey{
+		img: pl.ImageID, id: pl.ID, row: top + pl.Row, col: pl.Col, xoff: pl.XOffset, yoff: pl.YOffset,
+		cols: pl.ParamCols, rows: pl.ParamRows,
+		srcX: pl.ParamSrcX, srcY: pl.ParamSrcY, srcW: pl.ParamSrcW, srcH: pl.ParamSrcH, gr: max(pl.Rows, 1), z: pl.Z,
+	}
+}
+
+// placeImage writes the sequence that places k, with id as its placement
+// id: a virtual placement for its placeholder cells, a direct one at its
+// cell on the screen, which the cursor moves to and stays at after it.
+// top is the screen's first row from the top of the scrollback.
+func placeImage(out *bytes.Buffer, k imageKey, id uint32, top int) {
+	if k.virtual {
+		fmt.Fprintf(out, "\x1b_Ga=p,U=1,i=%d,p=%d,c=%d,r=%d,z=%d,q=2\x1b\\", k.img, id, k.cols, k.rows, k.z)
+		return
+	}
+	fmt.Fprintf(out, "\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,X=%d,Y=%d,x=%d,y=%d,w=%d,h=%d,c=%d,r=%d,z=%d,C=1,q=2\x1b\\",
+		k.row-top+1, k.col+1, k.img, id, k.xoff, k.yoff, k.srcX, k.srcY, k.srcW, k.srcH, k.cols, k.rows, k.z)
 }
 
 // deleteImages deletes from the other terminal the images sent of a

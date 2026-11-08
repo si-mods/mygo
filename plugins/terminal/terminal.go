@@ -26,6 +26,7 @@
 package terminal
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -1131,6 +1132,49 @@ func (t *Terminal) Snapshot() []byte {
 		return nil
 	}
 	return t.term.VT()
+}
+
+// Images returns the escape sequences (Kitty graphics) that bring the
+// images of the screen that shows, as they are now, to a terminal that
+// Snapshot or GhosttySnapshot made of this one: the pixels of each image
+// placed, once, and its placements, with the ids the program gave them,
+// so that what it sends next acts on them. A direct placement whose top
+// scrolled off the screen is left out, as a program can place an image
+// only at the cursor; the cursor stays where it was.
+func (t *Terminal) Images() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.term == nil {
+		return nil
+	}
+	var keys []imageKey
+	t.term.Placements(func(pl vt.Placement) {
+		if pl.Virtual || pl.Visible && pl.Row >= 0 {
+			keys = append(keys, keyOf(pl, 0))
+		}
+	})
+	var out bytes.Buffer
+	sent := map[uint32]bool{}
+	saved := false
+	for _, k := range keys {
+		if !sent[k.img] {
+			img, ok := t.term.Image(k.img)
+			if !ok {
+				continue
+			}
+			sendImage(&out, img)
+			sent[k.img] = true
+		}
+		if !k.virtual && !saved {
+			out.WriteString("\x1b7")
+			saved = true
+		}
+		placeImage(&out, k, k.id, 0)
+	}
+	if saved {
+		out.WriteString("\x1b8")
+	}
+	return out.Bytes()
 }
 
 // Send sends data to the program as if typed.

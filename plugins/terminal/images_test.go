@@ -8,8 +8,10 @@ import (
 	imagecolor "image/color"
 	"image/draw"
 	"image/png"
+	"slices"
 	"testing"
 
+	"github.com/egoist/mygo/plugins/terminal/internal/vt"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -87,5 +89,86 @@ func TestImagePNG(t *testing.T) {
 	c := tt.Image().RGBAAt(int(x*term.v.scale), int(y*term.v.scale))
 	if got := ui.RGB(c.R, c.G, c.B); got != ui.RGB(0, 255, 0) {
 		t.Errorf("the image's cell is %v, want green", got)
+	}
+}
+
+// placements returns the placements of the screen that shows that a
+// program can place again: the virtual ones and the direct ones whose top
+// is on the screen.
+func placements(term *Terminal) []vt.Placement {
+	term.mu.Lock()
+	defer term.mu.Unlock()
+	var out []vt.Placement
+	term.term.Placements(func(pl vt.Placement) {
+		if pl.Virtual || pl.Visible && pl.Row >= 0 {
+			out = append(out, pl)
+		}
+	})
+	slices.SortFunc(out, func(a, b vt.Placement) int { return int(a.ImageID) - int(b.ImageID) })
+	return out
+}
+
+// Images brings the images a terminal shows now, not those it showed, to
+// a terminal its snapshot made: each image's pixels once, its placements
+// where they are with the program's ids, the cursor left as it was.
+func TestImagesExport(t *testing.T) {
+	loadLib(t)
+	red, blue := ui.RGB(255, 0, 0), ui.RGB(0, 0, 255)
+	a := headless(t)
+	a.Resize(20, 6)
+	// Sent again, as a program redrawing at a new size does: the last one
+	// counts.
+	for range 5 {
+		a.Feed([]byte("\x1b[2;3H" + kittyImage(7, 4, 4, red, ",p=2,c=2,r=1,C=1")))
+	}
+	a.Feed([]byte("\x1b[4;5H" + kittyImage(8, 2, 2, blue, ",C=1")))
+	// Deleted.
+	a.Feed([]byte("\x1b[5;1H" + kittyImage(9, 2, 2, blue, ",C=1") + "\x1b_Ga=d,d=I,i=9,q=2\x1b\\"))
+	// Virtual, for Unicode placeholders.
+	a.Feed([]byte(kittyImage(10, 2, 2, red, ",U=1,p=3,c=2,r=1")))
+	// Scrolled off, it can be placed again no more.
+	a.Feed([]byte("\x1b[1;1H" + kittyImage(11, 2, 2, red, ",C=1")))
+	a.Feed([]byte("\x1b[6;1H\r\n"))
+	a.Feed([]byte("\x1b[3;7Hhi"))
+
+	images := a.Images()
+	if n := bytes.Count(images, []byte("a=t,")); n != 3 {
+		t.Errorf("%d images sent, want 3 (7, 8, 10):\n%q", n, images)
+	}
+	for _, want := range []string{"i=7,p=2,", "a=p,U=1,i=10,p=3,c=2,r=1,"} {
+		if !bytes.Contains(images, []byte(want)) {
+			t.Errorf("images lack %q:\n%q", want, images)
+		}
+	}
+	for _, gone := range []string{"i=9,", "i=11,"} {
+		if bytes.Contains(images, []byte(gone)) {
+			t.Errorf("images have %q:\n%q", gone, images)
+		}
+	}
+
+	b := headless(t)
+	b.Resize(20, 6)
+	b.Feed(a.Snapshot())
+	b.Feed(images)
+	want, got := placements(a), placements(b)
+	if len(want) != 3 || !slices.Equal(got, want) {
+		t.Errorf("placements after the snapshot and images\n%+v, want\n%+v", got, want)
+	}
+	if x, y := cursor(b); x != 8 || y != 2 {
+		t.Errorf("cursor after the images = %d,%d, want 8,2", x, y)
+	}
+	a.mu.Lock()
+	img, _ := a.term.Image(7)
+	a.mu.Unlock()
+	b.mu.Lock()
+	got7, ok := b.term.Image(7)
+	b.mu.Unlock()
+	if !ok || !bytes.Equal(decoded(got7).Pix, decoded(img).Pix) {
+		t.Errorf("image 7's pixels did not come")
+	}
+	// What the program sends next acts on them.
+	b.Feed([]byte("\x1b_Ga=d,d=i,i=7,p=2,q=2\x1b\\"))
+	if pl := placements(b); len(pl) != 2 {
+		t.Errorf("after deleting placement 2 of image 7: %+v", pl)
 	}
 }

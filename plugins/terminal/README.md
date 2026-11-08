@@ -27,6 +27,8 @@ binary snapshot, the "GHOSTSNP" format: the screen, the scrollback, the
 cursor and the modes — and `RestoreGhosttySnapshot` puts it back, into a
 terminal of the size it was taken at. `Snapshot` is the other form: escape
 sequences that replay the output into a terminal of the same size.
+`Images` follows either with the images it shows now (Kitty graphics), as
+escape sequences, which a terminal that reads no snapshot of them needs.
 
 The events a client sends are encoded for the program with the terminal's
 modes, so a client need only forward what its platform gives it:
