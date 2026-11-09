@@ -81,6 +81,16 @@ func TestPathAt(t *testing.T) {
 		{"cd ../ now", 4, "../"},
 		{"and/or", 2, "and/or"},
 		{"trailing / alone", 9, ""},
+		{"/tmp/scratchpad/shot2_zoom.png。", 8, "/tmp/scratchpad/shot2_zoom.png"},
+		{"/a/b.png，下一句", 3, "/a/b.png"},
+		{"看 ./x.go:12。", 4, "./x.go:12"},
+		{"（/tmp/a.txt）", 3, "/tmp/a.txt"},
+		{"docs/中文.png", 6, "docs/中文.png"},
+		{"写入 /tmp/报告.md。", 8, "/tmp/报告.md"},
+		{"见 /tmp/a.png…", 4, "/tmp/a.png"},
+		{"《/tmp/a.png〉", 3, "/tmp/a.png"},
+		{"a/b.png）。", 2, "a/b.png"},
+		{"./x.go:12”。", 2, "./x.go:12"},
 	} {
 		text := []rune(c.row)
 		cols := make([]int, len(text))
@@ -90,6 +100,17 @@ func TestPathAt(t *testing.T) {
 		if got, _, _ := pathAt(text, cols, c.col); got != c.want {
 			t.Errorf("pathAt(%q, %d) = %q, want %q", c.row, c.col, got, c.want)
 		}
+	}
+}
+
+func TestPathAtSpanCJKPunct(t *testing.T) {
+	text := []rune("看 /tmp/a.png”。")
+	cols := make([]int, len(text))
+	for i := range cols {
+		cols[i] = i
+	}
+	if path, x0, x1 := pathAt(text, cols, 4); path != "/tmp/a.png" || x0 != 2 || x1 != 12 {
+		t.Errorf("pathAt = %q %d..%d, want /tmp/a.png 2..12", path, x0, x1)
 	}
 }
 

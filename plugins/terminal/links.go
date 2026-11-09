@@ -245,10 +245,15 @@ func matchAt(re *regexp.Regexp, text []rune, cols []int, col int) (string, int, 
 	return "", 0, 0
 }
 
-// trimURL trims what likely ends the sentence around a URL rather than the
-// URL: punctuation, and closing brackets that the URL did not open.
+// trimURL trims what likely ends the sentence around a URL or a path rather
+// than it: punctuation, as the 。 or … of prose, and closing brackets that it
+// did not open.
 func trimURL(u string) string {
 	for len(u) > 0 {
+		if r, n := utf8.DecodeLastRuneInString(u); r >= utf8.RuneSelf && unicode.IsPunct(r) {
+			u = u[:len(u)-n]
+			continue
+		}
 		switch last := u[len(u)-1]; last {
 		case '.', ',', ';', ':', '!', '?':
 			u = u[:len(u)-1]
