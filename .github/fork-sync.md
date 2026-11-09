@@ -5,6 +5,86 @@ product document: `docs/` is published on the website, and a page added
 there is picked up by the docs nav. Nothing here was sent to egoist/mygo.
 The candidates at the end are an assessment only.
 
+## 2026-11-09
+
+Sync of `upstream/main` into fork `main`.
+
+| | |
+| --- | --- |
+| Fork tip merged | `677bef7b` — Merge pull request [#23](https://github.com/si-mods/mygo/pull/23) |
+| Upstream tip merged | `c4197b7f` — cut panes in a continuous frame's corners in Metal's shader ([egoist/mygo#1516](https://github.com/egoist/mygo/pull/1516)) |
+| Merge base | `659a325e` — the tip the previous sync ([#23](https://github.com/si-mods/mygo/pull/23)) already contained |
+| Compare `origin/main...upstream/main` before the merge | 34 fork-only, 28 upstream-only (left is the fork, right is upstream) |
+| Upstream range | `659a325e..c4197b7f` |
+
+Upstream in that range includes native modules (Go interfaces in Swift,
+Rust or Zig, [egoist/mygo#1430](https://github.com/egoist/mygo/pull/1430)),
+`Power.KeepRunning` ([#1486](https://github.com/egoist/mygo/pull/1486)),
+`App.ChosenLocale` ([#1470](https://github.com/egoist/mygo/pull/1470)),
+`ClipboardOptions.Concealed` ([#1476](https://github.com/egoist/mygo/pull/1476)),
+`Bitmap.UpdateYUV` ([#1487](https://github.com/egoist/mygo/pull/1487)),
+`WindowDoubleClicked` ([#1490](https://github.com/egoist/mygo/pull/1490)),
+`RowClicked` ([#1513](https://github.com/egoist/mygo/pull/1513)),
+hiding a button's tooltip while its menu shows ([#1491](https://github.com/egoist/mygo/pull/1491)),
+the non-ASCII URL boundary ([#1481](https://github.com/egoist/mygo/pull/1481)),
+WebView2 custom-scheme streaming ([#1504](https://github.com/egoist/mygo/pull/1504)),
+and GPU clip work ([#1489](https://github.com/egoist/mygo/pull/1489),
+[#1516](https://github.com/egoist/mygo/pull/1516)). Fork-only work kept on
+top includes SystemGlass, `SetDrawMenus`, `Theme.Menu`, `LinkPath`, OSC 9;4
+`OnProgress`, and exec bits on Windows-built archives.
+
+### Conflicts
+
+GitHub merged `egoist/main` into the sync branch with no textual
+conflicts (`merge_type: merge`). Nine files still differed from both
+parents after the merge (a clean three-way result). Two other files
+changed on both sides since `659a325e` and kept the fork text, because
+the fork already contained the upstream edit.
+
+| File | Root cause | What we kept |
+| --- | --- | --- |
+| `ui/menu.go` | Upstream routes `ContextMenu` / `Menu` through `drawMenuWith` so the build function does not escape every frame, and hides the trigger's tooltip when a menu is asked ([#1491](https://github.com/egoist/mygo/pull/1491), [#1514](https://github.com/egoist/mygo/pull/1514)). The fork still opens a drawn editing menu on the last pass and falls back to the system menu for a toast. | Upstream `drawMenuWith`. Fork `editMenu` still calls `menusInWindow.openEditMenu` and `host.requestFrame`; `openSystemEditMenu` stays the toast fallback. |
+| `ui/popovermenu.go` | Upstream split `drawMenu` into `beginDrawnMenu` / `drawnMenuBuilt` and renamed the local `*menuParts` from `m` to `parts`. The fork's `Theme.Menu` panel hook still said `m.level`. Auto-merge left `m.level` pointing at the new `*Menu` parameter, which has no `level` field. | Upstream split, `popupShows`, and allocation rewrite. `SetDrawMenus` / `DrawMenus` and `Theme.Menu` stay. After review, `themed` passes `parts.level`. |
+| `ui/menupresentation.go` | Upstream now stores `beginMenu` / `menuBuilt` on `menusInWindow` instead of `contextMenu` / `menuButton`. The fork still snapshots `openAt` and asks for a frame on the last pass. | Upstream function slots. Fork `openAt` copy, `requestFrame` when `inFrame && pass >= 2`, and the toast fallback in `drawEditMenu`. |
+| `ui/runtime.go` | Upstream added native-module views, same-frame hover after a scroll ([#1508](https://github.com/egoist/mygo/pull/1508) / [#1515](https://github.com/egoist/mygo/pull/1515)), `quietClicks`, and `handleDoubleClick`. The fork still places SystemGlass after present. | Both. `systemGlassPlaces` and `placeSystemGlass()` remain. |
+| `ui/paint.go` | Upstream draws a native module's texture (`drawTexture`). The fork still skips fade groups for SystemGlass and resets `systemGlassPlaces`. | Both. `isSystemGlass` still keeps those elements flat. |
+| `ui/api_gen.go` | Both sides added wrappers (`SetDrawMenus` / `DrawMenus` on the fork; `RowClicked`, `WindowDoubleClicked`, `Multiline`, `NativeView` upstream). | All of them. Branch has every upstream generated function plus the two fork wrappers. |
+| `internal/platform/surface.go` | Upstream added `ViewSurface` for native-module views. The fork still has `SystemGlassSurface`. | Both, as separate interfaces. SystemGlass types were not folded into `GlassSurface`. |
+| `docs/ui/windows.md` | Upstream documented `WindowDoubleClicked`. The fork documented SystemGlass. | Both sections. |
+| `docs/architecture.md` | Upstream added native modules, `KeepRunning`, concealed clipboard writes, and related tables. The fork documented SystemGlass among the other internals. | Both. The SystemGlass paragraph stays in its previous place. |
+| `plugins/terminal/links.go` | No textual conflict. Upstream [#1481](https://github.com/egoist/mygo/pull/1481) is the same URL pattern the fork already landed as [#21](https://github.com/si-mods/mygo/pull/21). | Fork file: identical `urlPattern`, plus `LinkPath` / `isDir` / `~/` `./` `../`. |
+| `plugins/terminal/links_test.go` | Same pair: upstream added `TestURLAtNotASCII`, which the fork already had, and the fork also tests directories. | Fork file: `TestURLAtNotASCII` plus the directory rows of `TestPathAt` and `TestIsDir`. |
+
+### Behavior that must keep working
+
+The 2026-11-08 list still applies. In addition, `Theme.Menu.Panel` must
+receive the `*menuParts` nesting level (`parts.level`), not a field of
+the `*Menu` being built.
+
+### Tests
+
+The 2026-11-08 set still applies, especially `TestMenuStyle*`,
+`TestDrawMenus*`, `TestURLAtNotASCII`, `TestPathAt`, and `TestIsDir`.
+`ui/popovermenu.go` would not compile until `themed` used `parts.level`.
+
+### Hotspots
+
+The same files remain hot. This sync did not collide in text on the
+menu files, but `ui/popovermenu.go` still needed a semantic fix after
+upstream renamed a local the fork's `Theme.Menu` hook used. The terminal
+URL work did not collide because [#21](https://github.com/si-mods/mygo/pull/21)
+and [egoist/mygo#1481](https://github.com/egoist/mygo/pull/1481) are the
+same change.
+
+Smaller next time:
+
+- After a rename in `drawnMenuBuilt`, read every remaining `m.` in the
+  fork hook: `m` is now the `*Menu` parameter.
+- Keep treating `LinkPath` as a filter after upstream `pathAt`. The URL
+  pattern no longer needs a fork copy; upstream `#1481` owns it.
+- Keep SystemGlass on its own types. Upstream's new `ViewSurface` is a
+  sibling of `SystemGlassSurface`, not a replacement.
+
 ## 2026-11-08
 
 Sync of `upstream/main` into fork `main`.
@@ -121,9 +201,12 @@ Smaller next time:
 
 ## Upstream candidates
 
-Checked against `659a325e`. A search of egoist/mygo issues and PRs for
+Checked against `c4197b7f`. A search of egoist/mygo issues and PRs for
 `LinkPath`, `SetDrawMenus`, and `OnProgress` found no existing item.
-No pull request was opened.
+The non-ASCII URL boundary from the previous candidate list landed
+upstream as [egoist/mygo#1481](https://github.com/egoist/mygo/pull/1481)
+(author kyya; same change as fork [#21](https://github.com/si-mods/mygo/pull/21)).
+No new pull request was opened from this sync.
 
 ### Worth sending
 
@@ -131,11 +214,11 @@ No pull request was opened.
    value. `pathAt` should stay upstream's. After it returns a path,
    `LinkPath` decides; with no callback, a trailing slash (`docs/`,
    `~/`, `docs/:12`, and `~/` `./` `../` alone) is not a link. gorex
-   and fork `#18`–`#21` depend on this. Tests: `TestCommandClickDirs`,
+   and fork `#18`–`#20` depend on this. Tests: `TestCommandClickDirs`,
    `TestIsDir`, the directory rows of `TestPathAt`, plus upstream
-   `links_place_test.go`. Ship the non-ASCII URL boundary (`TestURLAtNotASCII`)
-   in the same change only if upstream agrees a URL ends where CJK
-   starts; percent-encoded non-ASCII already stays inside the URL.
+   `links_place_test.go`. The URL boundary is no longer part of this
+   change: upstream `#1481` already ends a printed URL at the first
+   non-ASCII character.
 
 2. **OSC 9;4 `Options.OnProgress`.** Small and separate. State and
    percent, percent `-1` when absent, the last report in a burst.
