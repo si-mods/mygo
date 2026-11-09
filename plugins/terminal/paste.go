@@ -286,9 +286,11 @@ func (t *Terminal) sendReply(p []byte) {
 	}
 }
 
-// readsClipboard reports whether the program reads the clipboard itself
-// (mode 5522), as a paste then offers it all the clipboard holds.
-func (t *Terminal) readsClipboard() bool {
+// ReadsClipboard reports whether the program reads the clipboard itself
+// (mode 5522), as a paste then offers it all the clipboard holds: an app
+// that pastes for the program, as a file it sends to the program's
+// machine, leaves such a program to read it.
+func (t *Terminal) ReadsClipboard() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.term != nil && t.term.Mode(vt.ModePasteEvents)

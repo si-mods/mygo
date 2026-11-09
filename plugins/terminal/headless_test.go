@@ -132,6 +132,22 @@ func TestEncodePaste(t *testing.T) {
 	}
 }
 
+func TestReadsClipboard(t *testing.T) {
+	loadLib(t)
+	term := headless(t)
+	if term.ReadsClipboard() {
+		t.Error("reads the clipboard without mode 5522")
+	}
+	term.Feed([]byte("\x1b[?5522h"))
+	if !term.ReadsClipboard() {
+		t.Error("does not read the clipboard with mode 5522")
+	}
+	term.Feed([]byte("\x1b[?5522l"))
+	if term.ReadsClipboard() {
+		t.Error("reads the clipboard after mode 5522 is reset")
+	}
+}
+
 func TestEncodeFocus(t *testing.T) {
 	loadLib(t)
 	term := headless(t)
