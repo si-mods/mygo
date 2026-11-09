@@ -14,10 +14,12 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
 	"github.com/egoist/mygo/internal/scene"
+	"golang.org/x/text/width"
 )
 
 // DirectWrite lays out paragraphs with IDWriteTextLayout, which finds the
@@ -475,6 +477,7 @@ type faceKey struct {
 type fontKey struct {
 	face uintptr
 	size float32
+	text bool // a color face drawing in monochrome (emojiCluster)
 }
 
 func newDWrite() (*dwrite, error) {
@@ -716,7 +719,7 @@ func (e *dwrite) font(style Style) *Font {
 	if face == 0 {
 		return nil
 	}
-	return e.fontOf(face, style.FontSize())
+	return e.fontOf(face, style.FontSize(), false)
 }
 
 // matchFace returns the face of a family that best matches a weight and
@@ -743,9 +746,10 @@ func (e *dwrite) matchFace(coll uintptr, family string, weight int, italic bool)
 	return face
 }
 
-// fontOf returns the Font of a face at a size.
-func (e *dwrite) fontOf(face uintptr, size float32) *Font {
-	key := fontKey{face, size}
+// fontOf returns the Font of a face at a size, for text a Font of a color
+// face that draws its glyphs' outlines in monochrome.
+func (e *dwrite) fontOf(face uintptr, size float32, text bool) *Font {
+	key := fontKey{face, size, text}
 	if f, ok := e.fonts[key]; ok {
 		return f
 	}
@@ -753,7 +757,7 @@ func (e *dwrite) fontOf(face uintptr, size float32) *Font {
 	var m dwFontMetrics
 	call(face, faceGetMetrics, uintptr(unsafe.Pointer(&m)))
 	em := size / float32(max(m.designUnitsPerEm, 1))
-	f := &Font{Size: size, Ascent: float32(m.ascent) * em, Descent: float32(m.descent) * em, LineGap: float32(m.lineGap) * em, native: face, thin: e.isThin(face), color: isColor(face),
+	f := &Font{Size: size, Ascent: float32(m.ascent) * em, Descent: float32(m.descent) * em, LineGap: float32(m.lineGap) * em, native: face, thin: e.isThin(face), color: !text && isColor(face),
 		underlineTop: float32(m.underlinePosition) * em, underlineThick: float32(m.underlineThickness) * em,
 		strikeTop: float32(m.strikethroughPosition) * em, strikeThick: float32(m.strikethroughThickness) * em}
 	e.own(f)
@@ -1262,7 +1266,8 @@ func (e *dwrite) typography(layout uintptr, list string, r uintptr) {
 // what follows, which a run's pen cannot see: its place and width are
 // those hit testing finds.
 func (e *dwrite) run(layout uintptr, u16 []uint16, r dwRun, x float32, index []int) (shapedRun, float32) {
-	f := e.fontOf(r.face, r.size)
+	f := e.fontOf(r.face, r.size, false)
+	textFont := f // f drawing in monochrome, for clusters presented as text
 	// The glyphs last until the next layout, which takes them into its lines.
 	out := shapedRun{font: f, start: index[r.pos], end: index[r.pos+r.n], glyphs: e.glyphRoom(len(r.glyphs))}
 	// The code unit starting the cluster of each glyph.
@@ -1290,7 +1295,21 @@ func (e *dwrite) run(layout uintptr, u16 []uint16, r dwRun, x float32, index []i
 		if r.offsets != nil {
 			off = r.offsets[i]
 		}
-		g := Glyph{Font: f, ID: uint32(id), Advance: r.advances[i], Y: -off.ascenderOffset, Cluster: index[r.pos+first[i]], RTL: r.rtl}
+		gf := f
+		if f.color && len(r.clusters) > 0 {
+			k := first[i]
+			end := k + 1
+			for int(end) < len(r.clusters) && r.clusters[end] == r.clusters[k] {
+				end++
+			}
+			if !emojiCluster(u16[r.pos+k : r.pos+end]) {
+				if textFont == f {
+					textFont = e.fontOf(r.face, r.size, true)
+				}
+				gf = textFont
+			}
+		}
+		g := Glyph{Font: gf, ID: uint32(id), Advance: r.advances[i], Y: -off.ascenderOffset, Cluster: index[r.pos+first[i]], RTL: r.rtl}
 		if u := r.pos + first[i]; !r.rtl && int(u) < len(u16) && u16[u] == '\t' && (i == 0 || first[i-1] != first[i]) {
 			var tx, ty float32
 			var hit dwHitTestMetrics
@@ -1531,6 +1550,30 @@ func (e *dwrite) isThin(face uintptr) bool {
 	}
 	e.thin[face] = t
 	return t
+}
+
+// emojiCluster reports whether a cluster of code units drawn with a color
+// font is an emoji, drawn in color, or text, drawn in the text's color, as
+// UTS #51 presents it and Core Text and Ghostty draw it: a variation
+// selector says which, else the default presentation of its first
+// character. Characters with emoji presentation are the regional
+// indicators, flags in pairs, and some East Asian Wide ones: UAX #11 gives
+// them all W, and a symbol presented as text, such as ⏺, is narrow.
+// DirectWrite's fallback picks Segoe UI Emoji for either.
+func emojiCluster(u16 []uint16) bool {
+	for _, c := range u16 {
+		switch c {
+		case 0xFE0E:
+			return false
+		case 0xFE0F:
+			return true
+		}
+	}
+	r := rune(u16[0])
+	if utf16.IsSurrogate(r) && len(u16) > 1 {
+		r = utf16.DecodeRune(r, rune(u16[1]))
+	}
+	return r >= 0x1F1E6 && r <= 0x1F1FF || width.LookupRune(r).Kind() == width.EastAsianWide
 }
 
 // isColor reports whether a font face has color glyphs.
