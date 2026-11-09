@@ -386,7 +386,7 @@ returns:
 
 | Action | macOS | Linux and Windows | Windows also |
 | --- | --- | --- | --- |
-| `ActionCopy` | Cmd+C | Ctrl+Shift+C, Ctrl+Insert | Ctrl+C (performable) |
+| `ActionCopy` | Cmd+C (performable) | Ctrl+Shift+C (performable), Ctrl+Insert | Ctrl+C (performable) |
 | `ActionPaste` | Cmd+V | Ctrl+Shift+V, Shift+Insert | Ctrl+V (performable) |
 | `ActionSelectAll` | Cmd+A | Ctrl+Shift+A | |
 | `ActionClearScreen` | Cmd+K | | Ctrl+Shift+K |
@@ -405,7 +405,8 @@ the key; `NoDefaultKeybinds` starts from none, as Ghostty's
 
 ```go
 term, err := terminal.New(terminal.Options{Keybinds: []terminal.Keybind{
-	// Windows Terminal's Control+C and Control+V on Linux too.
+	// Control+C and Control+V copy and paste on Linux too, when there is
+	// something to copy or paste.
 	{Mods: ui.Ctrl, Key: ui.KeyC, Action: terminal.ActionCopy, Performable: true},
 	{Mods: ui.Ctrl, Key: ui.KeyV, Action: terminal.ActionPaste, Performable: true},
 	// Control+Shift+A reaches the program.
@@ -417,9 +418,11 @@ A `Performable` binding, as Ghostty's `performable:` prefix, takes the key
 only when its action does something: a copy only with a selection, a
 paste only when the clipboard holds something, clearing the screen and
 scrolling only off a full-screen program's screen; otherwise the key goes
-on to the program, as if unbound: Control+C interrupts when nothing is
-selected. A performable copy also lets go of the selection, so that the
-key's next press interrupts. `ActionClearScreen` clears the scrollback and
+on to the program, Command too: Control+C interrupts when nothing is
+selected, and Command+C or Control+Shift+C reaches a program that copies
+its own selection, as one tracking the mouse does. A copy keeps the
+selection, as Ghostty's, but on Windows a performable copy lets go of it,
+as Windows Terminal's Control+C, so that the key's next press interrupts. `ActionClearScreen` clears the scrollback and
 the screen above the cursor's line, which moves to the top with the
 shell's prompt, as Kitty's `clear_terminal to_cursor`, and the context
 menu's Clear does it too; `Terminal.ClearScreen` does the same from code,

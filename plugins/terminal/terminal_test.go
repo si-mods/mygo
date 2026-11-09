@@ -895,6 +895,8 @@ func TestSetCopyOnSelect(t *testing.T) {
 // copies or pastes.
 func TestCopyAndPasteKeys(t *testing.T) {
 	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "windows"
 	conn := newPipe()
 	term, err := New(Options{Conn: conn, RightClick: RightClickCopyOrPaste, Keybinds: []Keybind{
 		{Mods: ui.Ctrl, Key: ui.KeyC, Action: ActionCopy, Performable: true},
@@ -960,6 +962,77 @@ func TestCopyAndPasteKeys(t *testing.T) {
 	}
 }
 
+// TestPerformableCopyKeys: Command+C on macOS and Control+Shift+C
+// elsewhere copy a selection, which stays, as Ghostty's; without one they
+// go on to the program, which may copy its own, as one tracking the mouse
+// does (#339). On macOS the Edit menu's Copy, which takes Command+C before
+// the key comes, does the same.
+func TestPerformableCopyKeys(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	for _, c := range []struct {
+		goos   string
+		mods   ui.Modifiers
+		legacy string // sent without the Kitty keyboard protocol
+		kitty  string
+	}{
+		{"darwin", ui.Super, "", "\x1b[99;9u"},
+		{"linux", ui.Ctrl | ui.Shift, "", "\x1b[99;6u"},
+	} {
+		t.Run(c.goos, func(t *testing.T) {
+			goos = c.goos
+			conn := newPipe()
+			term, err := New(Options{Conn: conn, NoDefaultKeybinds: true, Keybinds: defaultKeybinds(c.goos)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer term.Close()
+			term.Feed([]byte("some text"))
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+			tt.Frame()
+			v := term.v
+			press := func() {
+				v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: c.mods, Key: ui.KeyC})
+				v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: c.mods, Key: ui.KeyC})
+			}
+			tt.Command("selectAll")
+			for range 2 {
+				press()
+				if got := tt.Clipboard(); got != "some text" {
+					t.Errorf("the copy key copied %q", got)
+				}
+				if got := conn.take(term); got != "" {
+					t.Errorf("the copy key with a selection sent %q", got)
+				}
+				if text, ok := term.term.SelectionText(); !ok || text != "some text" {
+					t.Errorf("the copy key left the selection %q, %v", text, ok)
+				}
+			}
+			tt.Key(0, ui.KeyEscape)
+			conn.take(term)
+			tt.SetClipboard("clipboard")
+			press()
+			if got := conn.take(term); got != c.legacy {
+				t.Errorf("the copy key without a selection sent %q, want %q", got, c.legacy)
+			}
+			term.Feed([]byte("\x1b[>1u"))
+			press()
+			if got := conn.take(term); got != c.kitty {
+				t.Errorf("the copy key without a selection sent %q with the Kitty keyboard protocol, want %q", got, c.kitty)
+			}
+			if c.goos == "darwin" {
+				tt.Command("copy")
+				if got := conn.take(term); got != c.kitty {
+					t.Errorf("the Edit menu's Copy without a selection sent %q, want %q", got, c.kitty)
+				}
+			}
+			if got := tt.Clipboard(); got != "clipboard" {
+				t.Errorf("the clipboard became %q", got)
+			}
+		})
+	}
+}
+
 // TestUnboundKeys: keys bound to ActionNone reach the program, as do
 // Control-C and -V outside Windows, and a secondary click shows the menu.
 func TestUnboundKeys(t *testing.T) {
@@ -997,7 +1070,7 @@ func TestUnboundKeys(t *testing.T) {
 // TestKeybinds: Options.Keybinds replace the defaults of their keys, in
 // order, ActionNone unbinds, and NoDefaultKeybinds starts from none.
 func TestKeybinds(t *testing.T) {
-	copyKey := Keybind{Mods: ui.Ctrl | ui.Shift, Key: ui.KeyC, Action: ActionCopy}
+	copyKey := Keybind{Mods: ui.Ctrl | ui.Shift, Key: ui.KeyC, Action: ActionCopy, Performable: true}
 	if runtime.GOOS == "darwin" {
 		copyKey.Mods = ui.Super
 	}
@@ -1009,6 +1082,7 @@ func TestKeybinds(t *testing.T) {
 		{Mods: ui.Ctrl, Key: ui.KeyC, Action: ActionCopy, Performable: true},
 		{Mods: ui.Ctrl, Key: ui.KeyV, Action: ActionPaste, Performable: true},
 		{Mods: ui.Shift, Key: ui.KeyInsert, Action: ActionPaste},
+		{Mods: ui.Ctrl, Key: ui.KeyInsert, Action: ActionCopy},
 	} {
 		if !slices.Contains(win, k) {
 			t.Errorf("Windows' defaults have no %v", k)

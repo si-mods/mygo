@@ -615,7 +615,14 @@ func (v *view) input(ev ui.InputEvent) bool {
 	case ui.InputCommand:
 		switch ev.Text {
 		case "copy":
-			v.copy(false)
+			// macOS's Edit menu takes Command+C before keyDown: with
+			// nothing to copy, a performable binding of the key sends it
+			// on to the program, as it would without the menu.
+			if !v.copy(false) && goos == "darwin" {
+				if b, ok := v.t.binding(ui.Super, ui.KeyC); ok && b.Action == ActionCopy && b.Performable {
+					v.keyDown(ui.InputEvent{Kind: ui.InputKeyDown, Mods: ui.Super, Key: ui.KeyC})
+				}
+			}
 		case "paste":
 			v.paste()
 		case "selectAll":
@@ -676,7 +683,8 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 	}
 	mac := goos == "darwin"
 	mods, key := ev.Mods, ev.Key
-	if b, ok := t.binding(mods, key); ok {
+	b, bound := t.binding(mods, key)
+	if bound {
 		if v.perform(b.Action, b.Performable) || !b.Performable {
 			// Its text and release are the binding's too.
 			k, _ := vtKey(key)
@@ -684,8 +692,8 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 			return true
 		}
 	}
-	if mods&ui.Super != 0 {
-		return false // the app's shortcuts
+	if mods&ui.Super != 0 && !bound {
+		return false // the app's shortcuts; a performable binding's goes on
 	}
 	k, unshifted := vtKey(key)
 	if k == vt.KeyUnidentified {
@@ -694,7 +702,7 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 	altMeta := mods&ui.Alt != 0 && (!mac || t.opts.OptionAsAlt)
 	// AltGr types text on Windows, where it is Control and Alt.
 	altGr := goos == "windows" && mods&(ui.Ctrl|ui.Alt) == ui.Ctrl|ui.Alt
-	if typesText(key) && (mods&(ui.Ctrl|ui.Alt) == 0 || mods&ui.Alt != 0 && !altMeta && mods&ui.Ctrl == 0 || altGr) {
+	if typesText(key) && mods&ui.Super == 0 && (mods&(ui.Ctrl|ui.Alt) == 0 || mods&ui.Alt != 0 && !altMeta && mods&ui.Ctrl == 0 || altGr) {
 		// The text it types comes next.
 		v.pending = &pendingKey{key: k, unshifted: unshifted, mods: mods, repeat: ev.Repeat}
 		return true
@@ -722,14 +730,16 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 }
 
 // perform does what a key bound to an action does, and reports whether
-// it did something (Keybind.Performable). A performable copy lets go of
-// the selection, so that the key's next press reaches the program.
+// it did something (Keybind.Performable). On Windows a performable copy
+// lets go of the selection, as Windows Terminal's Control+C, so that the
+// key's next press reaches the program; elsewhere the selection stays, as
+// Ghostty's.
 func (v *view) perform(a Action, performable bool) bool {
 	switch a {
 	case ActionIgnore:
 		return true
 	case ActionCopy:
-		return v.copy(performable)
+		return v.copy(performable && goos == "windows")
 	case ActionPaste:
 		return v.paste()
 	case ActionSelectAll:
