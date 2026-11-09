@@ -691,8 +691,11 @@ func httpGet(ctx context.Context, rawURL string) (io.ReadCloser, error) {
 }
 
 // httpRetries are how long httpGet waits before each try after the first
-// of a request that failed for a while: three tries in all.
-var httpRetries = []time.Duration{time.Second, 3 * time.Second}
+// of a request that failed for a while: four tries in all, about half a
+// minute of patience, so a gateway that times out for some seconds, as
+// the one in front of GitHub's release assets does now and then, no
+// longer fails the check or the update.
+var httpRetries = []time.Duration{time.Second, 5 * time.Second, 20 * time.Second}
 
 // transientStatus reports whether a response of status code may succeed
 // when asked again: too many requests, or a server or gateway failing for
