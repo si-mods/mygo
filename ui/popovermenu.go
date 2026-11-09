@@ -1041,7 +1041,7 @@ func (rt *engine) drawnMenuBuilt(e *node, d *drawnMenu, m *Menu) *platform.MenuI
 	// The theme's style of the panel, after MyGo set its layout.
 	themed := func(panel *node) {
 		if ms.Panel != nil {
-			ms.Panel(wrapElement(panel), m.level)
+			ms.Panel(wrapElement(panel), parts.level)
 		}
 	}
 	var items func(menu *platform.Menu, width float32)
