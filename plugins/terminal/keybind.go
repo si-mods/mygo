@@ -17,9 +17,10 @@ const (
 	// ActionIgnore takes the key and does nothing, as Ghostty's ignore.
 	ActionIgnore
 	// ActionCopy copies the selection, as copy_to_clipboard. It does
-	// something only with a selection, which stays, as Ghostty's; on
-	// Windows, when Performable, it lets go of it, so that the key's next
-	// press reaches the program, as Windows Terminal's Control+C.
+	// something only with a selection, which stays, as Ghostty's; bound
+	// Performable to Control and a key, as Windows Terminal's Control+C,
+	// it lets go of it, so that the key's next press reaches the program,
+	// which reads it as a control character.
 	ActionCopy
 	// ActionPaste pastes the clipboard, as paste_from_clipboard: as the
 	// view's Paste does (see Options.OnPaste). It does something only when

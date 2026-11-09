@@ -615,14 +615,7 @@ func (v *view) input(ev ui.InputEvent) bool {
 	case ui.InputCommand:
 		switch ev.Text {
 		case "copy":
-			// macOS's Edit menu takes Command+C before keyDown: with
-			// nothing to copy, a performable binding of the key sends it
-			// on to the program, as it would without the menu.
-			if !v.copy(false) && goos == "darwin" {
-				if b, ok := v.t.binding(ui.Super, ui.KeyC); ok && b.Action == ActionCopy && b.Performable {
-					v.keyDown(ui.InputEvent{Kind: ui.InputKeyDown, Mods: ui.Super, Key: ui.KeyC})
-				}
-			}
+			v.copy(false)
 		case "paste":
 			v.paste()
 		case "selectAll":
@@ -685,7 +678,7 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 	mods, key := ev.Mods, ev.Key
 	b, bound := t.binding(mods, key)
 	if bound {
-		if v.perform(b.Action, b.Performable) || !b.Performable {
+		if v.perform(b) || !b.Performable {
 			// Its text and release are the binding's too.
 			k, _ := vtKey(key)
 			v.pending = &pendingKey{key: k, taken: true}
@@ -725,21 +718,25 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 	if ev.Repeat {
 		action = vt.KeyRepeat
 	}
+	if mods&ui.Super != 0 {
+		// A performable binding's, whose release goes too (keyUp).
+		v.pending = &pendingKey{key: k, sent: true}
+	}
 	v.sendKey(vt.KeyEvent{Action: action, Key: k, Mods: vtMods(mods), Text: text, Unshifted: unshifted})
 	return true
 }
 
 // perform does what a key bound to an action does, and reports whether
-// it did something (Keybind.Performable). On Windows a performable copy
-// lets go of the selection, as Windows Terminal's Control+C, so that the
-// key's next press reaches the program; elsewhere the selection stays, as
-// Ghostty's.
-func (v *view) perform(a Action, performable bool) bool {
-	switch a {
+// it did something (Keybind.Performable). A copy keeps the selection, as
+// Ghostty's, but a performable Control and a key, as Windows Terminal's
+// Control+C, lets go of it: the program reads that key as a control
+// character, as an interrupt, which its next press then sends.
+func (v *view) perform(b Keybind) bool {
+	switch a := b.Action; a {
 	case ActionIgnore:
 		return true
 	case ActionCopy:
-		return v.copy(performable && goos == "windows")
+		return v.copy(b.Performable && b.Mods == ui.Ctrl)
 	case ActionPaste:
 		return v.paste()
 	case ActionSelectAll:
@@ -828,10 +825,11 @@ func (v *view) keyUp(ev ui.InputEvent) bool {
 		v.pending = nil
 		return true
 	}
+	sent := false
 	if p := v.pending; p != nil && p.sent && p.key == k {
-		v.pending = nil // sent as it went down
+		v.pending, sent = nil, true // sent as it went down
 	}
-	if k == vt.KeyUnidentified || ev.Mods&ui.Super != 0 {
+	if k == vt.KeyUnidentified || ev.Mods&ui.Super != 0 && !sent {
 		return false
 	}
 	if p := v.pending; p != nil && p.key == k {

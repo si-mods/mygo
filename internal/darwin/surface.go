@@ -176,6 +176,10 @@ type surface struct {
 	marked    string
 	markedSel nsRange
 	keyDown   bool // in interpretKeyEvents: text typed with the key
+	// equivalent is the key performKeyEquivalent: gave the content, and
+	// its time, which keyDown: then sends no more.
+	equivalent   id
+	equivalentAt float64
 	// withheld is the key keyDown: kept from the content while the input
 	// method composed, during interpretKeyEvents: doCommandBySelector:
 	// sends it if the input method ends the composition and passes the
@@ -829,6 +833,13 @@ func eventMods(ev id) platform.Modifiers {
 	return m
 }
 
+// sentEquivalent reports whether performKeyEquivalent: gave the content
+// the key ev already: one it left, and no menu item took, comes to
+// keyDown: next.
+func (s *surface) sentEquivalent(ev id) bool {
+	return s.equivalent == ev && s.equivalentAt == msgFloat(ev, sel("timestamp"))
+}
+
 // location returns where a mouse event happened, in the view's flipped
 // coordinates.
 func (s *surface) location(ev id) (float64, float64) {
@@ -1328,9 +1339,22 @@ func registerSurfaceClass() {
 				s.sideButton(platform.PointerUp, back, mods)
 			}
 		}),
+		// The keys of the Edit menu's items are the content's own too, as
+		// Command+C, which copies in a field and, without a selection,
+		// goes to a terminal's program: the content gets them first, as
+		// on Windows (menuShortcut), and the menu, which AppKit asks after
+		// the key window, only those it leaves.
+		method("performKeyEquivalent:", func(self id, _ objc.SEL, ev id) bool {
+			s := b().surfaceOf(self)
+			if s == nil || send(s.w.win, "firstResponder") != self || !editKeyEquivalent(ev) || s.sentEquivalent(ev) {
+				return false
+			}
+			s.equivalent, s.equivalentAt = ev, msgFloat(ev, sel("timestamp"))
+			return s.send(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: eventKey(ev), PhysicalKey: physicalKey(ev), Code: eventKeyCode(ev), Mods: eventMods(ev), Repeat: sendBool(ev, "isARepeat")})
+		}),
 		method("keyDown:", func(self id, _ objc.SEL, ev id) {
 			s := b().surfaceOf(self)
-			if s == nil {
+			if s == nil || s.sentEquivalent(ev) {
 				return
 			}
 			mods := eventMods(ev)

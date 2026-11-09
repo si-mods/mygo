@@ -1320,14 +1320,18 @@ var commandKeys = map[string]keyEvent{
 }
 
 // commandKey has an edit command that the focus, or ed, doesn't take go to
-// the shortcuts of its key, and reports whether it did. On macOS the Edit
-// menu takes Command+V and the others before the window sees the key, so a
-// window's Cmd+V would otherwise run only from a text input; elsewhere the
-// key comes first, and the menu only after.
+// the shortcuts of its key, and reports whether it did. On macOS a click
+// on the Edit menu's Paste and the others comes without the key, so a
+// window's Cmd+V would otherwise run only from a text input; their keys
+// come first, as elsewhere, and the menu only after: a key that waits for
+// the shortcuts already (the last) goes there once.
 func (rt *engine) commandKey(ev editEvent, ed *editor) bool {
 	k, ok := commandKeys[ev.text]
 	if runtime.GOOS != "darwin" || ev.kind != editCommand || !ok || ed != nil && ed.wants(k) {
 		return false
+	}
+	if n := len(rt.keys); n > 0 && rt.keys[n-1].mods == k.mods && rt.keys[n-1].key == k.key {
+		return true
 	}
 	k.repeat = ev.repeat
 	rt.keys = append(rt.keys, k)

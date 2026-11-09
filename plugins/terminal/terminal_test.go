@@ -895,8 +895,6 @@ func TestSetCopyOnSelect(t *testing.T) {
 // copies or pastes.
 func TestCopyAndPasteKeys(t *testing.T) {
 	loadLib(t)
-	defer func(was string) { goos = was }(goos)
-	goos = "windows"
 	conn := newPipe()
 	term, err := New(Options{Conn: conn, RightClick: RightClickCopyOrPaste, Keybinds: []Keybind{
 		{Mods: ui.Ctrl, Key: ui.KeyC, Action: ActionCopy, Performable: true},
@@ -965,8 +963,8 @@ func TestCopyAndPasteKeys(t *testing.T) {
 // TestPerformableCopyKeys: Command+C on macOS and Control+Shift+C
 // elsewhere copy a selection, which stays, as Ghostty's; without one they
 // go on to the program, which may copy its own, as one tracking the mouse
-// does (#339). On macOS the Edit menu's Copy, which takes Command+C before
-// the key comes, does the same.
+// does (#339), their release too. The Edit menu's Copy, a click, sends
+// nothing. Windows Terminal's Control+C lets go of the selection.
 func TestPerformableCopyKeys(t *testing.T) {
 	loadLib(t)
 	defer func(was string) { goos = was }(goos)
@@ -974,10 +972,11 @@ func TestPerformableCopyKeys(t *testing.T) {
 		goos   string
 		mods   ui.Modifiers
 		legacy string // sent without the Kitty keyboard protocol
-		kitty  string
+		kitty  string // with its releases
 	}{
-		{"darwin", ui.Super, "", "\x1b[99;9u"},
-		{"linux", ui.Ctrl | ui.Shift, "", "\x1b[99;6u"},
+		{"darwin", ui.Super, "", "\x1b[99;9u\x1b[99;9:3u"},
+		{"linux", ui.Ctrl | ui.Shift, "", "\x1b[99;6u\x1b[99;6:3u"},
+		{"windows", ui.Ctrl | ui.Shift, "", "\x1b[99;6u\x1b[99;6:3u"},
 	} {
 		t.Run(c.goos, func(t *testing.T) {
 			goos = c.goos
@@ -991,40 +990,53 @@ func TestPerformableCopyKeys(t *testing.T) {
 			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
 			tt.Frame()
 			v := term.v
-			press := func() {
-				v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: c.mods, Key: ui.KeyC})
-				v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: c.mods, Key: ui.KeyC})
+			press := func(mods ui.Modifiers) {
+				v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: ui.KeyC})
+				v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: ui.KeyC})
+			}
+			selected := func() bool {
+				text, ok := term.term.SelectionText()
+				return ok && text == "some text"
 			}
 			tt.Command("selectAll")
 			for range 2 {
-				press()
+				press(c.mods)
 				if got := tt.Clipboard(); got != "some text" {
 					t.Errorf("the copy key copied %q", got)
 				}
 				if got := conn.take(term); got != "" {
 					t.Errorf("the copy key with a selection sent %q", got)
 				}
-				if text, ok := term.term.SelectionText(); !ok || text != "some text" {
-					t.Errorf("the copy key left the selection %q, %v", text, ok)
+				if !selected() {
+					t.Error("the copy key let go of the selection")
+				}
+			}
+			if c.goos == "windows" {
+				tt.SetClipboard("")
+				press(ui.Ctrl)
+				if got := tt.Clipboard(); got != "some text" || selected() {
+					t.Errorf("Control+C copied %q and kept the selection: %v", got, selected())
+				}
+				press(ui.Ctrl)
+				if got := conn.take(term); got != "\x03" {
+					t.Errorf("the next Control+C sent %q", got)
 				}
 			}
 			tt.Key(0, ui.KeyEscape)
 			conn.take(term)
 			tt.SetClipboard("clipboard")
-			press()
+			press(c.mods)
 			if got := conn.take(term); got != c.legacy {
 				t.Errorf("the copy key without a selection sent %q, want %q", got, c.legacy)
 			}
-			term.Feed([]byte("\x1b[>1u"))
-			press()
+			term.Feed([]byte("\x1b[>3u")) // and report releases
+			press(c.mods)
 			if got := conn.take(term); got != c.kitty {
 				t.Errorf("the copy key without a selection sent %q with the Kitty keyboard protocol, want %q", got, c.kitty)
 			}
-			if c.goos == "darwin" {
-				tt.Command("copy")
-				if got := conn.take(term); got != c.kitty {
-					t.Errorf("the Edit menu's Copy without a selection sent %q, want %q", got, c.kitty)
-				}
+			tt.Command("copy")
+			if got := conn.take(term); got != "" {
+				t.Errorf("the Edit menu's Copy without a selection sent %q", got)
 			}
 			if got := tt.Clipboard(); got != "clipboard" {
 				t.Errorf("the clipboard became %q", got)
