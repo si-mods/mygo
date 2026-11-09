@@ -220,3 +220,63 @@ func TestPasteAndMatchStyleFallsBack(t *testing.T) {
 		t.Fatalf("commands %q", got)
 	}
 }
+
+// TestCommandKey checks that an edit command chosen by its key, as macOS's
+// Edit menu takes Command+C, comes with the key, by its position on a
+// layout that types no US key, as Cyrillic, whose release then comes by
+// position too; one chosen by a click comes with none.
+func TestCommandKey(t *testing.T) {
+	var got, seen []InputEvent
+	var up Key
+	tt := coreNewTester(func(c *context) {
+		coreColumn(c).Fill().ObserveInput(func(ev InputEvent) {
+			if ev.Kind == InputCommand {
+				seen = append(seen, ev)
+			}
+		}).Children(func() {
+			coreBox(c).Size(100, 100).Focusable().AutoFocus().HandleInput(func(ev InputEvent) bool {
+				if ev.Kind == InputKeyUp {
+					up = ev.Key
+				}
+				if ev.Kind == InputCommand {
+					got = append(got, ev)
+				}
+				return ev.Kind == InputCommand
+			})
+		})
+	}, 200, 200)
+	tt.Command("copy")
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy", Key: platform.Key(KeyC), PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy", PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper, Repeat: true})
+	if len(got) != 3 {
+		t.Fatalf("commands %v", got)
+	}
+	if got[0].Key != KeyUnknown || got[0].Mods != 0 {
+		t.Errorf("a click came with %v %v", got[0].Mods, got[0].Key)
+	}
+	for _, evs := range [][]InputEvent{got, seen} {
+		if len(evs) != 3 {
+			t.Fatalf("commands %v", evs)
+		}
+		for _, ev := range evs[1:] {
+			if ev.Key != KeyC || ev.PhysicalKey != KeyC || ev.Mods != Super {
+				t.Errorf("Command+C came with %v %v at %v", ev.Mods, ev.Key, ev.PhysicalKey)
+			}
+		}
+	}
+	if !got[2].Repeat {
+		t.Error("a repeat of the key came as a press")
+	}
+	tt.send(platform.SurfaceEvent{Kind: platform.KeyReleased, PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	if up != KeyC {
+		t.Errorf("the key let go of came as %v", up)
+	}
+	// Chosen by position, then on a US layout, the key is the layout's
+	// again.
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy", PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy", Key: platform.Key(KeyC), PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	tt.send(platform.SurfaceEvent{Kind: platform.KeyReleased, PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	if up != KeyUnknown {
+		t.Errorf("a key of no name let go of came as %v", up)
+	}
+}

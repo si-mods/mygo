@@ -190,7 +190,10 @@ type view struct {
 
 	// pending is a key that types text, until the text comes; preedit
 	// is an input method's composition and its caret.
-	pending      *pendingKey
+	pending *pendingKey
+	// commandSent are the keys with Command that went to the program,
+	// whose releases go too, whatever keys came between.
+	commandSent  map[vt.Key]bool
 	preedit      string
 	preeditCaret int
 
@@ -362,8 +365,10 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		v.focused = focused
 		v.blinkStart = c.Now()
 		if !focused {
-			// Input methods drop their composition with the focus.
+			// Input methods drop their composition with the focus; the
+			// keys held let go elsewhere.
 			v.preedit, v.pending = "", nil
+			clear(v.commandSent)
 		}
 	}
 	// The cursor blinks, every 600 ms, while the terminal has the focus.
@@ -613,15 +618,19 @@ func (v *view) input(ev ui.InputEvent) bool {
 		v.preedit, v.preeditCaret, v.pending = ev.Text, ev.Caret, nil
 		return true
 	case ui.InputCommand:
-		switch ev.Text {
-		case "copy":
-			v.copy(false)
-		case "paste":
-			v.paste()
-		case "selectAll":
-			v.selectAll()
-		default:
+		a, ok := commandActions[ev.Text]
+		if !ok {
 			return false
+		}
+		// macOS's Edit menu takes its keys before keyDown: chosen by a key
+		// bound to the command's action, it does what the key does, as a
+		// performable Command+C that sends the key on with nothing to
+		// copy, and the menu's command is done whatever the key did. A
+		// click does the command.
+		if b, ok := v.t.binding(ev.Mods, ev.Key); ev.Key != ui.KeyUnknown && ok && b.Action == a {
+			v.keyDown(ev)
+		} else {
+			v.perform(Keybind{Action: a})
 		}
 		return true
 	case ui.InputPointerDown, ui.InputPointerUp, ui.InputPointerMove:
@@ -661,6 +670,9 @@ func (v *view) input(ev ui.InputEvent) bool {
 	return false
 }
 
+// commandActions are the actions of the edit commands the view takes.
+var commandActions = map[string]Action{"copy": ActionCopy, "paste": ActionPaste, "selectAll": ActionSelectAll}
+
 // goos is the system whose keys keyDown reads; tests read macOS's.
 var goos = runtime.GOOS
 
@@ -674,29 +686,65 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 		v.pending = &pendingKey{key: k, taken: true}
 		return true
 	}
-	mac := goos == "darwin"
 	mods, key := ev.Mods, ev.Key
 	if b, ok := t.binding(mods, key); ok {
-		if v.perform(b.Action, b.Performable) || !b.Performable {
-			// Its text and release are the binding's too.
-			k, _ := vtKey(key)
-			v.pending = &pendingKey{key: k, taken: true}
-			return true
-		}
+		return v.pressBound(b, ev)
 	}
 	if mods&ui.Super != 0 {
 		return false // the app's shortcuts
 	}
+	return v.sendPressed(ev)
+}
+
+// pressBound does what a key bound to b does: the action, else, for a
+// performable binding that leaves the key, the key goes to the program,
+// with Command too.
+func (v *view) pressBound(b Keybind, ev ui.InputEvent) bool {
+	if v.perform(b) || !b.Performable {
+		// Its text and release are the binding's too.
+		k, _ := vtKey(ev.Key)
+		v.pending = &pendingKey{key: k, taken: true}
+		return true
+	}
+	return v.sendPressed(ev)
+}
+
+// sendPressed sends the program a key pressed, or has the text it types
+// come next, and reports whether the key went to the program. A key with
+// Command, which a performable binding left, goes when the encoder writes
+// something for it, as Command+C with the Kitty keyboard protocol or
+// Command+Home without it; else it goes on to the app's shortcuts.
+func (v *view) sendPressed(ev ui.InputEvent) bool {
+	t := v.t
+	mac := goos == "darwin"
+	mods, key := ev.Mods, ev.Key
 	k, unshifted := vtKey(key)
 	if k == vt.KeyUnidentified {
 		return false
 	}
-	altMeta := mods&ui.Alt != 0 && (!mac || t.opts.OptionAsAlt)
+	// Command's keys type nothing, Option among them.
+	altMeta := mods&ui.Alt != 0 && mods&ui.Super == 0 && (!mac || t.opts.OptionAsAlt)
 	// AltGr types text on Windows, where it is Control and Alt.
 	altGr := goos == "windows" && mods&(ui.Ctrl|ui.Alt) == ui.Ctrl|ui.Alt
-	if typesText(key) && (mods&(ui.Ctrl|ui.Alt) == 0 || mods&ui.Alt != 0 && !altMeta && mods&ui.Ctrl == 0 || altGr) {
+	if typesText(key) && mods&ui.Super == 0 && (mods&(ui.Ctrl|ui.Alt) == 0 || mods&ui.Alt != 0 && !altMeta && mods&ui.Ctrl == 0 || altGr) {
 		// The text it types comes next.
 		v.pending = &pendingKey{key: k, unshifted: unshifted, mods: mods, repeat: ev.Repeat}
+		return true
+	}
+	action := vt.KeyPress
+	if ev.Repeat {
+		action = vt.KeyRepeat
+	}
+	if mods&ui.Super != 0 {
+		// Its release goes too.
+		if !v.sendKey(vt.KeyEvent{Action: action, Key: k, Mods: vtMods(mods), Unshifted: unshifted}) {
+			return false
+		}
+		v.pending = nil
+		if v.commandSent == nil {
+			v.commandSent = map[vt.Key]bool{}
+		}
+		v.commandSent[k] = true
 		return true
 	}
 	v.pending = nil
@@ -713,23 +761,22 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 			v.pending = &pendingKey{key: k, sent: true}
 		}
 	}
-	action := vt.KeyPress
-	if ev.Repeat {
-		action = vt.KeyRepeat
-	}
 	v.sendKey(vt.KeyEvent{Action: action, Key: k, Mods: vtMods(mods), Text: text, Unshifted: unshifted})
 	return true
 }
 
 // perform does what a key bound to an action does, and reports whether
-// it did something (Keybind.Performable). A performable copy lets go of
-// the selection, so that the key's next press reaches the program.
-func (v *view) perform(a Action, performable bool) bool {
-	switch a {
+// it did something (Keybind.Performable). A copy keeps the selection, as
+// Ghostty's, but a performable Control and a key that types a character,
+// as Windows Terminal's Control+C, lets go of it: the program reads that
+// key as a control character, as an interrupt, which its next press then
+// sends.
+func (v *view) perform(b Keybind) bool {
+	switch a := b.Action; a {
 	case ActionIgnore:
 		return true
 	case ActionCopy:
-		return v.copy(performable)
+		return v.copy(b.Performable && b.Mods == ui.Ctrl && typesText(b.Key))
 	case ActionPaste:
 		return v.paste()
 	case ActionSelectAll:
@@ -814,9 +861,14 @@ func (v *view) keyUp(ev ui.InputEvent) bool {
 	k, unshifted := vtKey(ev.Key)
 	if p := v.pending; p != nil && p.taken && p.key == k {
 		// The release of a key OnKey or a keybind took, Command held or
-		// not.
+		// not, which no press sent before is left to send.
 		v.pending = nil
+		delete(v.commandSent, k)
 		return true
+	}
+	if v.commandSent[k] {
+		delete(v.commandSent, k)
+		return v.encodeKey(vt.KeyEvent{Action: vt.KeyRelease, Key: k, Mods: vtMods(ev.Mods), Unshifted: unshifted}, false)
 	}
 	if p := v.pending; p != nil && p.sent && p.key == k {
 		v.pending = nil // sent as it went down
@@ -892,10 +944,12 @@ func (v *view) typed(text string) {
 
 // sendKey sends a key, scrolling to the bottom and clearing the selection
 // as Ghostty does when it sends something.
-func (v *view) sendKey(k vt.KeyEvent) {
-	if v.encodeKey(k, true) {
-		v.blinkStart = time.Now()
+func (v *view) sendKey(k vt.KeyEvent) bool {
+	if !v.encodeKey(k, true) {
+		return false
 	}
+	v.blinkStart = time.Now()
+	return true
 }
 
 func (v *view) encodeKey(k vt.KeyEvent, press bool) bool {

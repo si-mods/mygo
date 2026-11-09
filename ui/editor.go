@@ -18,11 +18,13 @@ const (
 )
 
 type editEvent struct {
-	kind  editKind
-	mods  Modifiers
-	key   Key
-	text  string
-	caret int
+	kind editKind
+	mods Modifiers
+	key  Key
+	// physical is the key by position of a command's key (InputCommand).
+	physical Key
+	text     string
+	caret    int
 	// repeat marks a command whose key, held down, repeats (commandKey).
 	repeat bool
 	// replace makes an insertion or a composition take the runes from to

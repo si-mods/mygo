@@ -36,7 +36,10 @@ const (
 	// comes again as "paste" when the element doesn't take it),
 	// "selectAll", "undo", "redo" or "delete", or one of the Format menu,
 	// as Bold: "bold", "italic", "underline", "strikethrough",
-	// "alignLeft", "alignCenter" or "alignRight".
+	// "alignLeft", "alignCenter" or "alignRight". Key, PhysicalKey, Mods
+	// and Repeat are the key that chose the menu item, as Command+C on
+	// macOS, whose menus take their keys before the window sees them;
+	// KeyUnknown for a click.
 	InputCommand
 	// InputPointerDown and InputPointerUp report Button pressed or
 	// released at X, Y, with Clicks the count of quick successive presses

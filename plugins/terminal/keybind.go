@@ -17,9 +17,10 @@ const (
 	// ActionIgnore takes the key and does nothing, as Ghostty's ignore.
 	ActionIgnore
 	// ActionCopy copies the selection, as copy_to_clipboard. It does
-	// something only with a selection, and when Performable it also lets
-	// go of it, so that the key's next press reaches the program, as
-	// Windows Terminal's Control+C.
+	// something only with a selection, which stays, as Ghostty's; bound
+	// Performable to Control and a key that types a character, as Windows
+	// Terminal's Control+C, it lets go of it, so that the key's next press
+	// reaches the program, which reads it as a control character.
 	ActionCopy
 	// ActionPaste pastes the clipboard, as paste_from_clipboard: as the
 	// view's Paste does (see Options.OnPaste). It does something only when
@@ -58,7 +59,11 @@ const (
 // Performable, as Ghostty's performable: prefix, takes the key only when
 // the action does something: Control+C copies a selection, and without
 // one goes on to the program, which it interrupts. A key the action leaves
-// goes on as if unbound.
+// goes on to the program, with Command too when the encoder writes
+// something for it, as Command+C with the Kitty keyboard protocol or
+// Command+Home without it (else to the app's shortcuts): a program that
+// copies its own selection, as one tracking the mouse does, gets
+// Command+C.
 type Keybind struct {
 	Mods        ui.Modifiers
 	Key         ui.Key
@@ -69,12 +74,14 @@ type Keybind struct {
 // DefaultKeybinds returns the keys a terminal binds unless
 // Options.NoDefaultKeybinds, which are Ghostty's of the platform:
 //
-//   - on macOS, Command+C copies and Command+V pastes, Command+A selects
-//     all, Command+K clears the screen, Command+= (and +) and Command+-
-//     zoom, and Command+0 zooms back; Command+Home, End, Page Up and
-//     Page Down scroll, as do Shift+Page Up and Page Down;
-//   - elsewhere, Control+Shift+C and Control+Insert copy, Control+Shift+V
-//     and Shift+Insert paste, Control+Shift+A selects all, Control+= (and
+//   - on macOS, Command+C copies when there is a selection (performable),
+//     Command+V pastes, Command+A selects all, Command+K clears the
+//     screen, Command+= (and +) and Command+- zoom, and Command+0 zooms
+//     back; Command+Home, End, Page Up and Page Down scroll, as do
+//     Shift+Page Up and Page Down;
+//   - elsewhere, Control+Shift+C copies when there is a selection
+//     (performable), as does Control+Insert always, Control+Shift+V and
+//     Shift+Insert paste, Control+Shift+A selects all, Control+= (and
 //     +), Control+- and Control+0 zoom, and Shift+Page Up and Page Down
 //     scroll, as do Shift+Home and End on Linux;
 //   - on Windows, also Windows Terminal's: Control+C copies when there is a
@@ -104,7 +111,7 @@ func defaultKeybinds(goos string) []Keybind {
 	}
 	if goos == "darwin" {
 		cmd := ui.Super
-		bind(cmd, ui.KeyC, ActionCopy)
+		performable(cmd, ui.KeyC, ActionCopy)
 		bind(cmd, ui.KeyV, ActionPaste)
 		bind(cmd, ui.KeyA, ActionSelectAll)
 		performable(cmd, ui.KeyK, ActionClearScreen)
@@ -118,7 +125,7 @@ func defaultKeybinds(goos string) []Keybind {
 		return b
 	}
 	// The first key of an action is the one menus show.
-	bind(ui.Ctrl|ui.Shift, ui.KeyC, ActionCopy)
+	performable(ui.Ctrl|ui.Shift, ui.KeyC, ActionCopy)
 	bind(ui.Ctrl|ui.Shift, ui.KeyV, ActionPaste)
 	bind(ui.Ctrl, ui.KeyInsert, ActionCopy)
 	bind(ui.Shift, ui.KeyInsert, ActionPaste)

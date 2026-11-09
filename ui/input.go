@@ -131,7 +131,9 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.TextComposition:
 		taken = rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
 	case platform.SurfaceCommand:
-		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat})
+		// The key that chose the command, as one pressed.
+		key := rt.pressedKey(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey), ev.Repeat)
+		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat, mods: Modifiers(ev.Mods), key: key, physical: Key(ev.PhysicalKey)})
 	case platform.SurfaceFocus:
 		rt.windowFocused = true
 		rt.blinkStart = rt.now()
@@ -948,19 +950,38 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 	return rt.keyDownPhysical(mods, key, KeyUnknown, CodeUnknown, repeat)
 }
 
-// keyDownPhysical is keyDown with the key by position (InputEvent.PhysicalKey).
-// A chord of a key the layout does not type as a US key, as S on a Cyrillic
-// layout, matches shortcuts by that position; plain typing is untouched.
-func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCode, repeat bool) bool {
+// input returns the InputEvent of kind for ev: a command's with the key
+// that chose it.
+func (ev editEvent) input(kind InputKind) InputEvent {
+	in := InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret}
+	if kind == InputCommand {
+		in.Key, in.PhysicalKey, in.Mods, in.Repeat = ev.key, ev.physical, ev.mods, ev.repeat
+	}
+	return in
+}
+
+// pressedKey returns the key a press of key, at physical, stands for: its
+// position where the layout types no US key and a shortcut modifier is
+// held (platform.KeyByPosition), whose release then comes by position
+// too (KeyReleased).
+func (rt *engine) pressedKey(mods Modifiers, key, physical Key, repeat bool) Key {
 	if platform.KeyByPosition(platform.Key(key), platform.Key(physical), platform.Modifiers(mods)) {
 		if rt.byPosition == nil {
 			rt.byPosition = map[Key]bool{}
 		}
 		rt.byPosition[physical] = true
-		key = physical
+		return physical
 	} else if !repeat {
 		delete(rt.byPosition, physical)
 	}
+	return key
+}
+
+// keyDownPhysical is keyDown with the key by position (InputEvent.PhysicalKey).
+// A chord of a key the layout does not type as a US key, as S on a Cyrillic
+// layout, matches shortcuts by that position; plain typing is untouched.
+func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCode, repeat bool) bool {
+	key = rt.pressedKey(mods, key, physical, repeat)
 	if rt.inspectKey(mods, key) {
 		return true
 	}
@@ -1258,7 +1279,7 @@ func (rt *engine) editEvent(ev editEvent) bool {
 		} else if ev.kind == editCommand {
 			kind = InputCommand
 		}
-		rt.observeFocus(InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret})
+		rt.observeFocus(ev.input(kind))
 	}
 	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocus() && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
 		if ev.kind == editInsert || ev.kind == editCompose {
@@ -1278,7 +1299,7 @@ func (rt *engine) editEvent(ev editEvent) bool {
 	}
 	if h := rt.focusHandler(); h != nil && h.editor == nil {
 		kind := map[editKind]InputKind{editInsert: InputText, editCompose: InputCompose, editCommand: InputCommand}[ev.kind]
-		handled := kind != 0 && rt.deliver(h, InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret})
+		handled := kind != 0 && rt.deliver(h, ev.input(kind))
 		if !handled && kind == InputCommand && ev.text == "pasteAndMatchStyle" {
 			// A handler of text without styles pastes it as Paste does.
 			handled = rt.deliver(h, InputEvent{Kind: kind, Text: "paste"})
