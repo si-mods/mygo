@@ -133,7 +133,12 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.SurfaceCommand:
 		key := Key(ev.Key)
 		if platform.KeyByPosition(ev.Key, ev.PhysicalKey, ev.Mods) {
+			// Its release comes by position too, as a key pressed's.
 			key = Key(ev.PhysicalKey)
+			if rt.byPosition == nil {
+				rt.byPosition = map[Key]bool{}
+			}
+			rt.byPosition[key] = true
 		}
 		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat, mods: Modifiers(ev.Mods), key: key})
 	case platform.SurfaceFocus:

@@ -223,12 +223,16 @@ func TestPasteAndMatchStyleFallsBack(t *testing.T) {
 
 // TestCommandKey checks that an edit command chosen by its key, as macOS's
 // Edit menu takes Command+C, comes with the key, by its position on a
-// layout that types no US key, as Cyrillic; one chosen by a click comes
-// with none.
+// layout that types no US key, as Cyrillic, whose release then comes by
+// position too; one chosen by a click comes with none.
 func TestCommandKey(t *testing.T) {
 	var got []InputEvent
+	var up Key
 	tt := coreNewTester(func(c *context) {
 		coreBox(c).Size(100, 100).Focusable().AutoFocus().HandleInput(func(ev InputEvent) bool {
+			if ev.Kind == InputKeyUp {
+				up = ev.Key
+			}
 			if ev.Kind == InputCommand {
 				got = append(got, ev)
 			}
@@ -251,5 +255,9 @@ func TestCommandKey(t *testing.T) {
 	}
 	if !got[2].Repeat {
 		t.Error("a repeat of the key came as a press")
+	}
+	tt.send(platform.SurfaceEvent{Kind: platform.KeyReleased, PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	if up != KeyC {
+		t.Errorf("the key let go of came as %v", up)
 	}
 }
