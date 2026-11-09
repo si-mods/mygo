@@ -190,7 +190,10 @@ type view struct {
 
 	// pending is a key that types text, until the text comes; preedit
 	// is an input method's composition and its caret.
-	pending      *pendingKey
+	pending *pendingKey
+	// commandSent are the keys with Command that went to the program,
+	// whose releases go too, whatever keys came between.
+	commandSent  map[vt.Key]bool
 	preedit      string
 	preeditCaret int
 
@@ -362,8 +365,10 @@ func (v *view) build(c *ui.Context, e ui.Element) {
 		v.focused = focused
 		v.blinkStart = c.Now()
 		if !focused {
-			// Input methods drop their composition with the focus.
+			// Input methods drop their composition with the focus; the
+			// keys held let go elsewhere.
 			v.preedit, v.pending = "", nil
+			clear(v.commandSent)
 		}
 	}
 	// The cursor blinks, every 600 ms, while the terminal has the focus.
@@ -613,17 +618,18 @@ func (v *view) input(ev ui.InputEvent) bool {
 		v.preedit, v.preeditCaret, v.pending = ev.Text, ev.Caret, nil
 		return true
 	case ui.InputCommand:
+		// macOS's Edit menu takes its keys before keyDown: chosen by a key
+		// bound to the command's action, it does what the key does, as a
+		// performable Command+C that sends the key on with nothing to
+		// copy. A click does the command.
+		if a, ok := commandActions[ev.Text]; ok && ev.Key != ui.KeyUnknown {
+			if b, ok := v.t.binding(ev.Mods, ev.Key); ok && b.Action == a {
+				return v.keyDown(ev)
+			}
+		}
 		switch ev.Text {
 		case "copy":
-			// macOS's Edit menu takes Command+C before keyDown: chosen by
-			// a key bound to copy, it does what the key does, which a
-			// performable binding sends on to the program with nothing
-			// to copy. A click only copies.
-			if b, ok := v.t.binding(ev.Mods, ev.Key); ev.Key != ui.KeyUnknown && ok && b.Action == ActionCopy {
-				v.pressBound(b, ev)
-			} else {
-				v.copy(false)
-			}
+			v.copy(false)
 		case "paste":
 			v.paste()
 		case "selectAll":
@@ -668,6 +674,9 @@ func (v *view) input(ev ui.InputEvent) bool {
 	}
 	return false
 }
+
+// commandActions are the actions of the edit commands the view takes.
+var commandActions = map[string]Action{"copy": ActionCopy, "paste": ActionPaste, "selectAll": ActionSelectAll}
 
 // goos is the system whose keys keyDown reads; tests read macOS's.
 var goos = runtime.GOOS
@@ -725,6 +734,24 @@ func (v *view) sendPressed(ev ui.InputEvent) bool {
 		return true
 	}
 	v.pending = nil
+	action := vt.KeyPress
+	if ev.Repeat {
+		action = vt.KeyRepeat
+	}
+	if mods&ui.Super != 0 {
+		// A performable binding's: it goes to a program that reads it, as
+		// with the Kitty keyboard protocol, and its release too; else to
+		// the app's shortcuts.
+		if !v.encodeKey(vt.KeyEvent{Action: action, Key: k, Mods: vtMods(mods), Unshifted: unshifted}, true) {
+			return false
+		}
+		v.blinkStart = time.Now()
+		if v.commandSent == nil {
+			v.commandSent = map[vt.Key]bool{}
+		}
+		v.commandSent[k] = true
+		return true
+	}
 	text := ""
 	if altMeta && typesText(key) && mods&ui.Ctrl == 0 {
 		// Alt as Meta: the character, which the encoder prefixes with Esc.
@@ -737,14 +764,6 @@ func (v *view) sendPressed(ev ui.InputEvent) bool {
 			// composes it, after this.
 			v.pending = &pendingKey{key: k, sent: true}
 		}
-	}
-	action := vt.KeyPress
-	if ev.Repeat {
-		action = vt.KeyRepeat
-	}
-	if mods&ui.Super != 0 {
-		// A performable binding's, whose release goes too (keyUp).
-		v.pending = &pendingKey{key: k, sent: true}
 	}
 	v.sendKey(vt.KeyEvent{Action: action, Key: k, Mods: vtMods(mods), Text: text, Unshifted: unshifted})
 	return true
@@ -849,11 +868,14 @@ func (v *view) keyUp(ev ui.InputEvent) bool {
 		v.pending = nil
 		return true
 	}
-	sent := false
-	if p := v.pending; p != nil && p.sent && p.key == k {
-		v.pending, sent = nil, true // sent as it went down
+	if v.commandSent[k] {
+		delete(v.commandSent, k)
+		return v.encodeKey(vt.KeyEvent{Action: vt.KeyRelease, Key: k, Mods: vtMods(ev.Mods), Unshifted: unshifted}, false)
 	}
-	if k == vt.KeyUnidentified || ev.Mods&ui.Super != 0 && !sent {
+	if p := v.pending; p != nil && p.sent && p.key == k {
+		v.pending = nil // sent as it went down
+	}
+	if k == vt.KeyUnidentified || ev.Mods&ui.Super != 0 {
 		return false
 	}
 	if p := v.pending; p != nil && p.key == k {

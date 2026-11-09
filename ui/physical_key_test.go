@@ -260,4 +260,12 @@ func TestCommandKey(t *testing.T) {
 	if up != KeyC {
 		t.Errorf("the key let go of came as %v", up)
 	}
+	// Chosen by position, then on a US layout, the key is the layout's
+	// again.
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy", PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy", Key: platform.Key(KeyC), PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	tt.send(platform.SurfaceEvent{Kind: platform.KeyReleased, PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	if up != KeyUnknown {
+		t.Errorf("a key of no name let go of came as %v", up)
+	}
 }

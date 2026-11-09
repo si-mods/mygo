@@ -3325,3 +3325,74 @@ func TestOnDrop(t *testing.T) {
 		t.Errorf("a drop OnDrop left pasted %q", s)
 	}
 }
+
+// TestCommandKeySent: a key with Command that a performable binding
+// leaves goes to the program only when the program reads it (the Kitty
+// keyboard protocol), else on to the app's shortcuts (#339 review); its
+// release goes whatever keys come between; Options.OnKey is asked about
+// the key that chose a menu's command, as about one pressed; and any edit
+// command chosen by a key bound to its action does what the key does.
+func TestCommandKeySent(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "darwin"
+	conn := newPipe()
+	var asked []ui.Key
+	takeV := false
+	term, err := New(Options{Conn: conn, NoDefaultKeybinds: true,
+		Keybinds: append(defaultKeybinds("darwin"), Keybind{Mods: ui.Super, Key: ui.KeyV, Action: ActionPaste, Performable: true}),
+		OnKey: func(mods ui.Modifiers, key ui.Key) bool {
+			asked = append(asked, key)
+			return takeV && key == ui.KeyV
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	tt.SetClipboard("")
+	v := term.v
+	key := func(kind ui.InputKind, k ui.Key) bool {
+		return v.input(ui.InputEvent{Kind: kind, Mods: ui.Super, Key: k})
+	}
+	// Without the Kitty keyboard protocol Command+C reads as nothing.
+	if key(ui.InputKeyDown, ui.KeyC) || key(ui.InputKeyUp, ui.KeyC) {
+		t.Error("the view took Command+C, which sent nothing")
+	}
+	if v.input(ui.InputEvent{Kind: ui.InputCommand, Text: "copy", Mods: ui.Super, Key: ui.KeyC}) {
+		t.Error("the view took the Copy of Command+C, which sent nothing")
+	}
+	if got := conn.take(term); got != "" {
+		t.Errorf("Command+C sent %q", got)
+	}
+	term.Feed([]byte("\x1b[>3u"))
+	// Command+V between Command+C's press and release.
+	key(ui.InputKeyDown, ui.KeyC)
+	takeV = true
+	key(ui.InputKeyDown, ui.KeyV)
+	key(ui.InputKeyUp, ui.KeyV)
+	takeV = false
+	key(ui.InputKeyUp, ui.KeyC)
+	if got, want := conn.take(term), "\x1b[99;9u\x1b[99;9:3u"; got != want {
+		t.Errorf("Command+C around Command+V sent %q, want %q", got, want)
+	}
+	// Paste chosen by performable Command+V with nothing to paste sends
+	// the key; clicked, it sends nothing.
+	asked = nil
+	v.input(ui.InputEvent{Kind: ui.InputCommand, Text: "paste", Mods: ui.Super, Key: ui.KeyV})
+	key(ui.InputKeyUp, ui.KeyV)
+	tt.Command("paste")
+	if got, want := conn.take(term), "\x1b[118;9u\x1b[118;9:3u"; got != want {
+		t.Errorf("Paste by Command+V sent %q, want %q", got, want)
+	}
+	if len(asked) != 1 || asked[0] != ui.KeyV {
+		t.Errorf("OnKey was asked about %v", asked)
+	}
+	takeV = true
+	v.input(ui.InputEvent{Kind: ui.InputCommand, Text: "paste", Mods: ui.Super, Key: ui.KeyV})
+	key(ui.InputKeyUp, ui.KeyV)
+	if got := conn.take(term); got != "" {
+		t.Errorf("Paste by a Command+V OnKey took sent %q", got)
+	}
+}

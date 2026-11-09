@@ -131,15 +131,8 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.TextComposition:
 		taken = rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
 	case platform.SurfaceCommand:
-		key := Key(ev.Key)
-		if platform.KeyByPosition(ev.Key, ev.PhysicalKey, ev.Mods) {
-			// Its release comes by position too, as a key pressed's.
-			key = Key(ev.PhysicalKey)
-			if rt.byPosition == nil {
-				rt.byPosition = map[Key]bool{}
-			}
-			rt.byPosition[key] = true
-		}
+		// The key that chose the command, as one pressed.
+		key := rt.pressedKey(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey), ev.Repeat)
 		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat, mods: Modifiers(ev.Mods), key: key})
 	case platform.SurfaceFocus:
 		rt.windowFocused = true
@@ -957,19 +950,28 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 	return rt.keyDownPhysical(mods, key, KeyUnknown, CodeUnknown, repeat)
 }
 
-// keyDownPhysical is keyDown with the key by position (InputEvent.PhysicalKey).
-// A chord of a key the layout does not type as a US key, as S on a Cyrillic
-// layout, matches shortcuts by that position; plain typing is untouched.
-func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCode, repeat bool) bool {
+// pressedKey returns the key a press of key, at physical, stands for: its
+// position where the layout types no US key and a shortcut modifier is
+// held (platform.KeyByPosition), whose release then comes by position
+// too (KeyReleased).
+func (rt *engine) pressedKey(mods Modifiers, key, physical Key, repeat bool) Key {
 	if platform.KeyByPosition(platform.Key(key), platform.Key(physical), platform.Modifiers(mods)) {
 		if rt.byPosition == nil {
 			rt.byPosition = map[Key]bool{}
 		}
 		rt.byPosition[physical] = true
-		key = physical
+		return physical
 	} else if !repeat {
 		delete(rt.byPosition, physical)
 	}
+	return key
+}
+
+// keyDownPhysical is keyDown with the key by position (InputEvent.PhysicalKey).
+// A chord of a key the layout does not type as a US key, as S on a Cyrillic
+// layout, matches shortcuts by that position; plain typing is untouched.
+func (rt *engine) keyDownPhysical(mods Modifiers, key, physical Key, code KeyCode, repeat bool) bool {
+	key = rt.pressedKey(mods, key, physical, repeat)
 	if rt.inspectKey(mods, key) {
 		return true
 	}

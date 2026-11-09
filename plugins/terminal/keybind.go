@@ -59,7 +59,8 @@ const (
 // Performable, as Ghostty's performable: prefix, takes the key only when
 // the action does something: Control+C copies a selection, and without
 // one goes on to the program, which it interrupts. A key the action leaves
-// goes on to the program, with Command too, as Ghostty sends it: a
+// goes on to the program, with Command too when the program reads it, as
+// with the Kitty keyboard protocol (else to the app's shortcuts): a
 // program that copies its own selection, as one tracking the mouse does,
 // gets Command+C.
 type Keybind struct {
