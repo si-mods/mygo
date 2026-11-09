@@ -226,17 +226,23 @@ func TestPasteAndMatchStyleFallsBack(t *testing.T) {
 // layout that types no US key, as Cyrillic, whose release then comes by
 // position too; one chosen by a click comes with none.
 func TestCommandKey(t *testing.T) {
-	var got []InputEvent
+	var got, seen []InputEvent
 	var up Key
 	tt := coreNewTester(func(c *context) {
-		coreBox(c).Size(100, 100).Focusable().AutoFocus().HandleInput(func(ev InputEvent) bool {
-			if ev.Kind == InputKeyUp {
-				up = ev.Key
-			}
+		coreColumn(c).Fill().ObserveInput(func(ev InputEvent) {
 			if ev.Kind == InputCommand {
-				got = append(got, ev)
+				seen = append(seen, ev)
 			}
-			return ev.Kind == InputCommand
+		}).Children(func() {
+			coreBox(c).Size(100, 100).Focusable().AutoFocus().HandleInput(func(ev InputEvent) bool {
+				if ev.Kind == InputKeyUp {
+					up = ev.Key
+				}
+				if ev.Kind == InputCommand {
+					got = append(got, ev)
+				}
+				return ev.Kind == InputCommand
+			})
 		})
 	}, 200, 200)
 	tt.Command("copy")
@@ -248,9 +254,14 @@ func TestCommandKey(t *testing.T) {
 	if got[0].Key != KeyUnknown || got[0].Mods != 0 {
 		t.Errorf("a click came with %v %v", got[0].Mods, got[0].Key)
 	}
-	for _, ev := range got[1:] {
-		if ev.Key != KeyC || ev.Mods != Super {
-			t.Errorf("Command+C came with %v %v", ev.Mods, ev.Key)
+	for _, evs := range [][]InputEvent{got, seen} {
+		if len(evs) != 3 {
+			t.Fatalf("commands %v", evs)
+		}
+		for _, ev := range evs[1:] {
+			if ev.Key != KeyC || ev.PhysicalKey != KeyC || ev.Mods != Super {
+				t.Errorf("Command+C came with %v %v at %v", ev.Mods, ev.Key, ev.PhysicalKey)
+			}
 		}
 	}
 	if !got[2].Repeat {

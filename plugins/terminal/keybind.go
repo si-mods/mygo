@@ -18,9 +18,9 @@ const (
 	ActionIgnore
 	// ActionCopy copies the selection, as copy_to_clipboard. It does
 	// something only with a selection, which stays, as Ghostty's; bound
-	// Performable to Control and a key, as Windows Terminal's Control+C,
-	// it lets go of it, so that the key's next press reaches the program,
-	// which reads it as a control character.
+	// Performable to Control and a key that types a character, as Windows
+	// Terminal's Control+C, it lets go of it, so that the key's next press
+	// reaches the program, which reads it as a control character.
 	ActionCopy
 	// ActionPaste pastes the clipboard, as paste_from_clipboard: as the
 	// view's Paste does (see Options.OnPaste). It does something only when
@@ -59,10 +59,11 @@ const (
 // Performable, as Ghostty's performable: prefix, takes the key only when
 // the action does something: Control+C copies a selection, and without
 // one goes on to the program, which it interrupts. A key the action leaves
-// goes on to the program, with Command too when the program reads it, as
-// with the Kitty keyboard protocol (else to the app's shortcuts): a
-// program that copies its own selection, as one tracking the mouse does,
-// gets Command+C.
+// goes on to the program, with Command too when the encoder writes
+// something for it, as Command+C with the Kitty keyboard protocol or
+// Command+Home without it (else to the app's shortcuts): a program that
+// copies its own selection, as one tracking the mouse does, gets
+// Command+C.
 type Keybind struct {
 	Mods        ui.Modifiers
 	Key         ui.Key

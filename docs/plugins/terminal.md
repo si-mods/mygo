@@ -417,19 +417,21 @@ A `Performable` binding, as Ghostty's `performable:` prefix, takes the key
 only when its action does something: a copy only with a selection, a paste
 only when the clipboard holds something, clearing the screen and scrolling
 only off a full-screen program's screen; otherwise the key goes on to the
-program, Command too when the program reads it, as with the Kitty keyboard
-protocol: Control+C interrupts when nothing is selected, and Command+C or
-Control+Shift+C reaches a program that copies its own selection, as one
-tracking the mouse does. A copy keeps the selection, as Ghostty's, but a
-performable Control and a key, as Windows Terminal's Control+C, lets go of
-it, so that the key's next press interrupts. On macOS the Edit menu's
-Copy, Paste and Select All, which take their keys before the terminal sees
-them, do what the key does when it is bound to their action; a click does
-the command. `ActionClearScreen` clears the scrollback and the screen
-above the cursor's line, which moves to the top with the shell's prompt,
-as Kitty's `clear_terminal to_cursor`, and the context menu's Clear does
-it too; `Terminal.ClearScreen` does the same from code, and
-`Terminal.ClearScrollback` clears the scrollback alone.
+program, Command too when the encoder writes something for it (Command+C
+with the Kitty keyboard protocol, Command+Home without it; else the app's
+shortcuts get it): Control+C interrupts when nothing is selected, and
+Command+C or Control+Shift+C reaches a program that copies its own
+selection, as one tracking the mouse does. A copy keeps the selection, as
+Ghostty's, but a performable Control and a key that types a character, as
+Windows Terminal's Control+C, lets go of it, so that the key's next press
+interrupts. On macOS the Edit menu's Copy, Paste and Select All, which
+take their keys before the terminal sees them, do what the key does when
+it is bound to their action; a click does the command. `ActionClearScreen`
+clears the scrollback and the screen above the cursor's line, which moves
+to the top with the shell's prompt, as Kitty's `clear_terminal to_cursor`,
+and the context menu's Clear does it too; `Terminal.ClearScreen` does the
+same from code, and `Terminal.ClearScrollback` clears the scrollback
+alone.
 `ActionIgnore` takes the key and does nothing.
 
 A key goes first to the app's shortcuts, then to `OnKey`, then to the

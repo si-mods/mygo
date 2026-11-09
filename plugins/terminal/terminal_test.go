@@ -3360,11 +3360,21 @@ func TestCommandKeySent(t *testing.T) {
 	if key(ui.InputKeyDown, ui.KeyC) || key(ui.InputKeyUp, ui.KeyC) {
 		t.Error("the view took Command+C, which sent nothing")
 	}
-	if v.input(ui.InputEvent{Kind: ui.InputCommand, Text: "copy", Mods: ui.Super, Key: ui.KeyC}) {
-		t.Error("the view took the Copy of Command+C, which sent nothing")
+	// The menu's Copy is the view's whatever its key did, so that the
+	// window's shortcuts don't run it too.
+	if !v.input(ui.InputEvent{Kind: ui.InputCommand, Text: "copy", Mods: ui.Super, Key: ui.KeyC}) {
+		t.Error("the view left the Copy of Command+C")
 	}
 	if got := conn.take(term); got != "" {
 		t.Errorf("Command+C sent %q", got)
+	}
+	// A key OnKey took keeps its release when Command+C goes on.
+	takeV = true
+	key(ui.InputKeyDown, ui.KeyV)
+	takeV = false
+	key(ui.InputKeyDown, ui.KeyC)
+	if !key(ui.InputKeyUp, ui.KeyV) {
+		t.Error("the release of Command+V, which OnKey took, went on")
 	}
 	term.Feed([]byte("\x1b[>3u"))
 	// Command+V between Command+C's press and release.
@@ -3377,6 +3387,20 @@ func TestCommandKeySent(t *testing.T) {
 	if got, want := conn.take(term), "\x1b[99;9u\x1b[99;9:3u"; got != want {
 		t.Errorf("Command+C around Command+V sent %q, want %q", got, want)
 	}
+	// A repeat that copies takes the release, which no press sent
+	// before goes after.
+	term.Feed([]byte("some text"))
+	key(ui.InputKeyDown, ui.KeyC)
+	v.input(ui.InputEvent{Kind: ui.InputCommand, Text: "selectAll"})
+	v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: ui.Super, Key: ui.KeyC, Repeat: true})
+	key(ui.InputKeyUp, ui.KeyC)
+	key(ui.InputKeyUp, ui.KeyC)
+	if got, want := conn.take(term), "\x1b[99;9u"; got != want {
+		t.Errorf("Command+C, then a repeat that copied, sent %q, want %q", got, want)
+	}
+	tt.Key(0, ui.KeyEscape)
+	conn.take(term)
+	tt.SetClipboard("")
 	// Paste chosen by performable Command+V with nothing to paste sends
 	// the key; clicked, it sends nothing.
 	asked = nil
@@ -3394,5 +3418,51 @@ func TestCommandKeySent(t *testing.T) {
 	key(ui.InputKeyUp, ui.KeyV)
 	if got := conn.take(term); got != "" {
 		t.Errorf("Paste by a Command+V OnKey took sent %q", got)
+	}
+}
+
+// TestCommandKeyLegacy: without the Kitty keyboard protocol a Command key
+// a performable binding leaves goes to the program when the encoder writes
+// something for it, as Command+Home on a full-screen program's screen,
+// which Ghostty sends the same.
+func TestCommandKeyLegacy(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "darwin"
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, NoDefaultKeybinds: true, Keybinds: defaultKeybinds("darwin")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("\x1b[?1049h"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	v := term.v
+	if !v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: ui.Super, Key: ui.KeyHome}) {
+		t.Error("the view left Command+Home, which it sent")
+	}
+	v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: ui.Super, Key: ui.KeyHome})
+	if got, want := conn.take(term), "\x1b[1;9H"; got != want {
+		t.Errorf("Command+Home sent %q, want %q", got, want)
+	}
+}
+
+// TestPerformableCopyKeepsSelection: only a performable copy on Control
+// and a key that types a character lets go of the selection.
+func TestPerformableCopyKeepsSelection(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn, Keybinds: []Keybind{{Mods: ui.Ctrl, Key: ui.KeyInsert, Action: ActionCopy, Performable: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	term.Feed([]byte("some text"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Command("selectAll")
+	tt.Key(ui.Ctrl, ui.KeyInsert)
+	if text, ok := term.term.SelectionText(); tt.Clipboard() != "some text" || !ok || text != "some text" {
+		t.Errorf("performable Control+Insert copied %q and left the selection %q, %v", tt.Clipboard(), text, ok)
 	}
 }

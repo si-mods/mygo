@@ -133,7 +133,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.SurfaceCommand:
 		// The key that chose the command, as one pressed.
 		key := rt.pressedKey(Modifiers(ev.Mods), Key(ev.Key), Key(ev.PhysicalKey), ev.Repeat)
-		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat, mods: Modifiers(ev.Mods), key: key})
+		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat, mods: Modifiers(ev.Mods), key: key, physical: Key(ev.PhysicalKey)})
 	case platform.SurfaceFocus:
 		rt.windowFocused = true
 		rt.blinkStart = rt.now()
@@ -950,6 +950,16 @@ func (rt *engine) keyDown(mods Modifiers, key Key, repeat bool) bool {
 	return rt.keyDownPhysical(mods, key, KeyUnknown, CodeUnknown, repeat)
 }
 
+// input returns the InputEvent of kind for ev: a command's with the key
+// that chose it.
+func (ev editEvent) input(kind InputKind) InputEvent {
+	in := InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret}
+	if kind == InputCommand {
+		in.Key, in.PhysicalKey, in.Mods, in.Repeat = ev.key, ev.physical, ev.mods, ev.repeat
+	}
+	return in
+}
+
 // pressedKey returns the key a press of key, at physical, stands for: its
 // position where the layout types no US key and a shortcut modifier is
 // held (platform.KeyByPosition), whose release then comes by position
@@ -1269,7 +1279,7 @@ func (rt *engine) editEvent(ev editEvent) bool {
 		} else if ev.kind == editCommand {
 			kind = InputCommand
 		}
-		rt.observeFocus(InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret})
+		rt.observeFocus(ev.input(kind))
 	}
 	if s := rt.states[rt.focused]; s != nil && s.textClient != nil && rt.windowFocus() && s.flags&flagDisabled == 0 && (s.editor == nil || !s.editor.readOnly) {
 		if ev.kind == editInsert || ev.kind == editCompose {
@@ -1289,11 +1299,7 @@ func (rt *engine) editEvent(ev editEvent) bool {
 	}
 	if h := rt.focusHandler(); h != nil && h.editor == nil {
 		kind := map[editKind]InputKind{editInsert: InputText, editCompose: InputCompose, editCommand: InputCommand}[ev.kind]
-		in := InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret}
-		if kind == InputCommand {
-			in.Key, in.Mods, in.Repeat = ev.key, ev.mods, ev.repeat
-		}
-		handled := kind != 0 && rt.deliver(h, in)
+		handled := kind != 0 && rt.deliver(h, ev.input(kind))
 		if !handled && kind == InputCommand && ev.text == "pasteAndMatchStyle" {
 			// A handler of text without styles pastes it as Paste does.
 			handled = rt.deliver(h, InputEvent{Kind: kind, Text: "paste"})
