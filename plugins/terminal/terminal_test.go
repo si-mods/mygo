@@ -1034,14 +1034,70 @@ func TestPerformableCopyKeys(t *testing.T) {
 			if got := conn.take(term); got != c.kitty {
 				t.Errorf("the copy key without a selection sent %q with the Kitty keyboard protocol, want %q", got, c.kitty)
 			}
+			// The Edit menu's Copy: clicked, it sends nothing; chosen by
+			// the key, as macOS's menu takes Command+C before the view
+			// sees it, the key goes on, its release too.
 			tt.Command("copy")
 			if got := conn.take(term); got != "" {
-				t.Errorf("the Edit menu's Copy without a selection sent %q", got)
+				t.Errorf("the Edit menu's Copy clicked without a selection sent %q", got)
+			}
+			byKey := func() {
+				v.input(ui.InputEvent{Kind: ui.InputCommand, Text: "copy", Mods: c.mods, Key: ui.KeyC})
+				v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: c.mods, Key: ui.KeyC})
+			}
+			byKey()
+			if got := conn.take(term); got != c.kitty {
+				t.Errorf("the Edit menu's Copy by its key without a selection sent %q, want %q", got, c.kitty)
 			}
 			if got := tt.Clipboard(); got != "clipboard" {
 				t.Errorf("the clipboard became %q", got)
 			}
+			tt.Command("selectAll")
+			byKey()
+			if got := conn.take(term); got != "" || tt.Clipboard() != "some text" || !selected() {
+				t.Errorf("the Edit menu's Copy by its key with a selection sent %q, copied %q, kept the selection: %v", got, tt.Clipboard(), selected())
+			}
 		})
+	}
+}
+
+// TestPerformableCommandKeyAlt: a performable binding of Command, Option
+// and a key that leaves the key sends it with both, not as Option as Meta
+// (Esc and the character), and the window's losing the keyboard before
+// the release lets go of the key, as of any key whose release goes
+// elsewhere.
+func TestPerformableCommandKeyAlt(t *testing.T) {
+	loadLib(t)
+	defer func(was string) { goos = was }(goos)
+	goos = "darwin"
+	conn := newPipe()
+	mods := ui.Super | ui.Alt
+	term, err := New(Options{Conn: conn, OptionAsAlt: true, Keybinds: []Keybind{{Mods: mods, Key: ui.KeyC, Action: ActionCopy, Performable: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	v := term.v
+	v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: ui.KeyC})
+	v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: ui.KeyC})
+	// Ghostty's encoder has Option as Alt prefix Esc to the key.
+	if got, want := conn.take(term), "\x1bc"; got != want {
+		t.Errorf("Command-Option-C sent %q, want %q", got, want)
+	}
+	term.Feed([]byte("\x1b[>3u"))
+	v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: ui.KeyC})
+	v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: ui.KeyC})
+	if got, want := conn.take(term), "\x1b[99;11u\x1b[99;11:3u"; got != want {
+		t.Errorf("Command-Option-C sent %q with the Kitty keyboard protocol, want %q", got, want)
+	}
+	v.input(ui.InputEvent{Kind: ui.InputKeyDown, Mods: mods, Key: ui.KeyC})
+	tt.SetFocused(false)
+	tt.Frame()
+	v.input(ui.InputEvent{Kind: ui.InputKeyUp, Mods: mods, Key: ui.KeyC})
+	if got, want := conn.take(term), "\x1b[99;11u"; got != want {
+		t.Errorf("Command-Option-C let go of after the focus left sent %q, want %q", got, want)
 	}
 }
 

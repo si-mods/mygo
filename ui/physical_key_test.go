@@ -220,3 +220,36 @@ func TestPasteAndMatchStyleFallsBack(t *testing.T) {
 		t.Fatalf("commands %q", got)
 	}
 }
+
+// TestCommandKey checks that an edit command chosen by its key, as macOS's
+// Edit menu takes Command+C, comes with the key, by its position on a
+// layout that types no US key, as Cyrillic; one chosen by a click comes
+// with none.
+func TestCommandKey(t *testing.T) {
+	var got []InputEvent
+	tt := coreNewTester(func(c *context) {
+		coreBox(c).Size(100, 100).Focusable().AutoFocus().HandleInput(func(ev InputEvent) bool {
+			if ev.Kind == InputCommand {
+				got = append(got, ev)
+			}
+			return ev.Kind == InputCommand
+		})
+	}, 200, 200)
+	tt.Command("copy")
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy", Key: platform.Key(KeyC), PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper})
+	tt.send(platform.SurfaceEvent{Kind: platform.SurfaceCommand, Text: "copy", PhysicalKey: platform.Key(KeyC), Mods: platform.ModSuper, Repeat: true})
+	if len(got) != 3 {
+		t.Fatalf("commands %v", got)
+	}
+	if got[0].Key != KeyUnknown || got[0].Mods != 0 {
+		t.Errorf("a click came with %v %v", got[0].Mods, got[0].Key)
+	}
+	for _, ev := range got[1:] {
+		if ev.Key != KeyC || ev.Mods != Super {
+			t.Errorf("Command+C came with %v %v", ev.Mods, ev.Key)
+		}
+	}
+	if !got[2].Repeat {
+		t.Error("a repeat of the key came as a press")
+	}
+}

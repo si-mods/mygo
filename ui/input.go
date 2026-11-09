@@ -131,7 +131,11 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 	case platform.TextComposition:
 		taken = rt.editEvent(rt.replaced(editEvent{kind: editCompose, text: ev.Text, caret: ev.Caret}, ev))
 	case platform.SurfaceCommand:
-		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat})
+		key := Key(ev.Key)
+		if platform.KeyByPosition(ev.Key, ev.PhysicalKey, ev.Mods) {
+			key = Key(ev.PhysicalKey)
+		}
+		rt.editEvent(editEvent{kind: editCommand, text: ev.Text, repeat: ev.Repeat, mods: Modifiers(ev.Mods), key: key})
 	case platform.SurfaceFocus:
 		rt.windowFocused = true
 		rt.blinkStart = rt.now()
@@ -1278,7 +1282,11 @@ func (rt *engine) editEvent(ev editEvent) bool {
 	}
 	if h := rt.focusHandler(); h != nil && h.editor == nil {
 		kind := map[editKind]InputKind{editInsert: InputText, editCompose: InputCompose, editCommand: InputCommand}[ev.kind]
-		handled := kind != 0 && rt.deliver(h, InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret})
+		in := InputEvent{Kind: kind, Text: ev.text, Caret: ev.caret}
+		if kind == InputCommand {
+			in.Key, in.Mods, in.Repeat = ev.key, ev.mods, ev.repeat
+		}
+		handled := kind != 0 && rt.deliver(h, in)
 		if !handled && kind == InputCommand && ev.text == "pasteAndMatchStyle" {
 			// A handler of text without styles pastes it as Paste does.
 			handled = rt.deliver(h, InputEvent{Kind: kind, Text: "paste"})
@@ -1320,18 +1328,14 @@ var commandKeys = map[string]keyEvent{
 }
 
 // commandKey has an edit command that the focus, or ed, doesn't take go to
-// the shortcuts of its key, and reports whether it did. On macOS a click
-// on the Edit menu's Paste and the others comes without the key, so a
-// window's Cmd+V would otherwise run only from a text input; their keys
-// come first, as elsewhere, and the menu only after: a key that waits for
-// the shortcuts already (the last) goes there once.
+// the shortcuts of its key, and reports whether it did. On macOS the Edit
+// menu takes Command+V and the others before the window sees the key, so a
+// window's Cmd+V would otherwise run only from a text input; elsewhere the
+// key comes first, and the menu only after.
 func (rt *engine) commandKey(ev editEvent, ed *editor) bool {
 	k, ok := commandKeys[ev.text]
 	if runtime.GOOS != "darwin" || ev.kind != editCommand || !ok || ed != nil && ed.wants(k) {
 		return false
-	}
-	if n := len(rt.keys); n > 0 && rt.keys[n-1].mods == k.mods && rt.keys[n-1].key == k.key {
-		return true
 	}
 	k.repeat = ev.repeat
 	rt.keys = append(rt.keys, k)

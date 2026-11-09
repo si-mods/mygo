@@ -5,7 +5,6 @@ package darwin
 import (
 	"runtime"
 	"slices"
-	"strings"
 
 	"github.com/ebitengine/purego/objc"
 
@@ -55,25 +54,6 @@ func validatesItem(it *platform.MenuItem) bool {
 	return platform.EditCommands[it.Role] || it.Role == "startSpeaking" || it.Role == "stopSpeaking"
 }
 
-// editItems are the app menu's edit items (platform.EditCommands), whose
-// keys the content gets first (performKeyEquivalent:). track retains them.
-var editItems []id
-
-// editKeyEquivalent reports whether ev is the key equivalent of an edit
-// item of the app menu.
-func editKeyEquivalent(ev id) bool {
-	const mask = 1<<17 | 1<<18 | 1<<19 | 1<<20 // Shift, Control, Option, Command
-	mods := uint(send(ev, "modifierFlags")) & mask
-	chars := strings.ToLower(stringOf(send(ev, "charactersIgnoringModifiers")))
-	for _, item := range editItems {
-		key := strings.ToLower(stringOf(send(item, "keyEquivalent")))
-		if key != "" && key == chars && uint(send(item, "keyEquivalentModifierMask"))&mask == mods {
-			return true
-		}
-	}
-	return false
-}
-
 func newOwner() int {
 	menuOwners++
 	return menuOwners
@@ -116,7 +96,6 @@ func registerMenuTarget() {
 func (b *Backend) SetApplicationMenu(m *platform.Menu) {
 	withPool(func() {
 		dropOwner(ownerAppMenu)
-		editItems = nil
 		if m == nil {
 			send(b.app, "setMainMenu:", 0)
 			return
@@ -183,9 +162,6 @@ func (b *Backend) buildItem(it *platform.MenuItem, owner int) id {
 		}
 	}
 	track(owner, it.ID, item)
-	if owner == ownerAppMenu && platform.EditCommands[it.Role] {
-		editItems = append(editItems, item)
-	}
 	return item
 }
 

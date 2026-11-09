@@ -346,7 +346,8 @@ const (
 	// "paste", "pasteAndMatchStyle", "selectAll", "undo", "redo" or
 	// "delete" (Edit menu roles), or a Format menu role's: "bold",
 	// "italic", "underline", "strikethrough", "alignLeft", "alignCenter"
-	// or "alignRight".
+	// or "alignRight". Key, PhysicalKey and Mods are the key that chose
+	// the item, none for a click.
 	SurfaceCommand
 	// SurfaceCommandEnabled asks whether SurfaceCommand with Text would
 	// act now, for a menu to enable its item: WindowHandler.SurfaceEvent

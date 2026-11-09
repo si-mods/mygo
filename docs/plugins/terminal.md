@@ -422,12 +422,13 @@ Command+C or Control+Shift+C reaches a program that copies its own
 selection, as one tracking the mouse does. A copy keeps the selection, as
 Ghostty's, but a performable Control and a key, as Windows Terminal's
 Control+C, lets go of it, so that the key's next press interrupts. On
-macOS the content gets the keys of the Edit menu's items before the menu,
-which runs only for those it leaves. `ActionClearScreen` clears the
-scrollback and the screen above the cursor's line, which moves to the top
-with the shell's prompt, as Kitty's `clear_terminal to_cursor`, and the
-context menu's Clear does it too; `Terminal.ClearScreen` does the same
-from code, and `Terminal.ClearScrollback` clears the scrollback alone.
+macOS the Edit menu's Copy, which takes Command+C before the terminal sees
+the key, does what the key does when the key chose it; a click only
+copies. `ActionClearScreen` clears the scrollback and the screen above the
+cursor's line, which moves to the top with the shell's prompt, as Kitty's
+`clear_terminal to_cursor`, and the context menu's Clear does it too;
+`Terminal.ClearScreen` does the same from code, and
+`Terminal.ClearScrollback` clears the scrollback alone.
 `ActionIgnore` takes the key and does nothing.
 
 A key goes first to the app's shortcuts, then to `OnKey`, then to the

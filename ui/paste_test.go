@@ -4,8 +4,6 @@ import (
 	"runtime"
 	"strconv"
 	"testing"
-
-	"github.com/egoist/mygo/internal/platform"
 )
 
 func TestOnPaste(t *testing.T) {
@@ -101,24 +99,5 @@ func TestPasteCommandShortcut(t *testing.T) {
 	tt.Frame()
 	if text != "hi" || pastes != want {
 		t.Fatalf("a paste into the field made %q and ran Cmd+V %d times", text, pastes)
-	}
-}
-
-// TestPasteKeyThenCommand: on macOS the window gets the Edit menu's keys
-// before the menu, which runs only once the content left the key: Cmd+V
-// runs the window's shortcut once, not again for the menu's Paste.
-// Elsewhere the menus' commands run no shortcut.
-func TestPasteKeyThenCommand(t *testing.T) {
-	pastes := 0
-	tt := NewTester(func(c *Context) {
-		c.OnShortcut(Cmd, KeyV, func() { pastes++ })
-	}, 300, 100)
-	tt.Frame()
-	// The key, then the menu, as AppKit sends them, before a frame.
-	tt.rt.event(platform.SurfaceEvent{Kind: platform.KeyPressed, Key: platform.Key(KeyV), Mods: platform.Modifiers(Cmd)})
-	tt.Command("paste")
-	tt.Frame()
-	if pastes != 1 {
-		t.Fatalf("Cmd+V and the menu's Paste ran Cmd+V %d times, want 1", pastes)
 	}
 }

@@ -615,7 +615,15 @@ func (v *view) input(ev ui.InputEvent) bool {
 	case ui.InputCommand:
 		switch ev.Text {
 		case "copy":
-			v.copy(false)
+			// macOS's Edit menu takes Command+C before keyDown: chosen by
+			// a key bound to copy, it does what the key does, which a
+			// performable binding sends on to the program with nothing
+			// to copy. A click only copies.
+			if b, ok := v.t.binding(ev.Mods, ev.Key); ev.Key != ui.KeyUnknown && ok && b.Action == ActionCopy {
+				v.pressBound(b, ev)
+			} else {
+				v.copy(false)
+			}
 		case "paste":
 			v.paste()
 		case "selectAll":
@@ -674,25 +682,41 @@ func (v *view) keyDown(ev ui.InputEvent) bool {
 		v.pending = &pendingKey{key: k, taken: true}
 		return true
 	}
+	mods, key := ev.Mods, ev.Key
+	if b, ok := t.binding(mods, key); ok {
+		return v.pressBound(b, ev)
+	}
+	if mods&ui.Super != 0 {
+		return false // the app's shortcuts
+	}
+	return v.sendPressed(ev)
+}
+
+// pressBound does what a key bound to b does: the action, else, for a
+// performable binding that leaves the key, the key goes to the program,
+// with Command too.
+func (v *view) pressBound(b Keybind, ev ui.InputEvent) bool {
+	if v.perform(b) || !b.Performable {
+		// Its text and release are the binding's too.
+		k, _ := vtKey(ev.Key)
+		v.pending = &pendingKey{key: k, taken: true}
+		return true
+	}
+	return v.sendPressed(ev)
+}
+
+// sendPressed sends the program a key pressed, or has the text it types
+// come next, and reports whether the key went to the program.
+func (v *view) sendPressed(ev ui.InputEvent) bool {
+	t := v.t
 	mac := goos == "darwin"
 	mods, key := ev.Mods, ev.Key
-	b, bound := t.binding(mods, key)
-	if bound {
-		if v.perform(b) || !b.Performable {
-			// Its text and release are the binding's too.
-			k, _ := vtKey(key)
-			v.pending = &pendingKey{key: k, taken: true}
-			return true
-		}
-	}
-	if mods&ui.Super != 0 && !bound {
-		return false // the app's shortcuts; a performable binding's goes on
-	}
 	k, unshifted := vtKey(key)
 	if k == vt.KeyUnidentified {
 		return false
 	}
-	altMeta := mods&ui.Alt != 0 && (!mac || t.opts.OptionAsAlt)
+	// Command's keys type nothing, Option among them.
+	altMeta := mods&ui.Alt != 0 && mods&ui.Super == 0 && (!mac || t.opts.OptionAsAlt)
 	// AltGr types text on Windows, where it is Control and Alt.
 	altGr := goos == "windows" && mods&(ui.Ctrl|ui.Alt) == ui.Ctrl|ui.Alt
 	if typesText(key) && mods&ui.Super == 0 && (mods&(ui.Ctrl|ui.Alt) == 0 || mods&ui.Alt != 0 && !altMeta && mods&ui.Ctrl == 0 || altGr) {
