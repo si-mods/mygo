@@ -1267,7 +1267,6 @@ func (e *dwrite) typography(layout uintptr, list string, r uintptr) {
 // those hit testing finds.
 func (e *dwrite) run(layout uintptr, u16 []uint16, r dwRun, x float32, index []int) (shapedRun, float32) {
 	f := e.fontOf(r.face, r.size, false)
-	textFont := f // f drawing in monochrome, for clusters presented as text
 	// The glyphs last until the next layout, which takes them into its lines.
 	out := shapedRun{font: f, start: index[r.pos], end: index[r.pos+r.n], glyphs: e.glyphRoom(len(r.glyphs))}
 	// The code unit starting the cluster of each glyph.
@@ -1295,21 +1294,19 @@ func (e *dwrite) run(layout uintptr, u16 []uint16, r dwRun, x float32, index []i
 		if r.offsets != nil {
 			off = r.offsets[i]
 		}
-		gf := f
+		gf, gid := f, uint32(id)
 		if f.color && len(r.clusters) > 0 {
 			k := first[i]
 			end := k + 1
 			for int(end) < len(r.clusters) && r.clusters[end] == r.clusters[k] {
 				end++
 			}
-			if !emojiCluster(u16[r.pos+k : r.pos+end]) {
-				if textFont == f {
-					textFont = e.fontOf(r.face, r.size, true)
-				}
-				gf = textFont
+			if c := u16[r.pos+k : r.pos+end]; !emojiCluster(c) {
+				alone := (i == 0 || first[i-1] != k) && (i+1 == len(first) || first[i+1] != k)
+				gf, gid = e.textGlyph(r, c, gid, alone)
 			}
 		}
-		g := Glyph{Font: gf, ID: uint32(id), Advance: r.advances[i], Y: -off.ascenderOffset, Cluster: index[r.pos+first[i]], RTL: r.rtl}
+		g := Glyph{Font: gf, ID: gid, Advance: r.advances[i], Y: -off.ascenderOffset, Cluster: index[r.pos+first[i]], RTL: r.rtl}
 		if u := r.pos + first[i]; !r.rtl && int(u) < len(u16) && u16[u] == '\t' && (i == 0 || first[i-1] != first[i]) {
 			var tx, ty float32
 			var hit dwHitTestMetrics
@@ -1574,6 +1571,29 @@ func emojiCluster(u16 []uint16) bool {
 		r = utf16.DecodeRune(r, rune(u16[1]))
 	}
 	return r >= 0x1F1E6 && r <= 0x1F1FF || width.LookupRune(r).Kind() == width.EastAsianWide
+}
+
+// textGlyph returns the font and glyph that draw glyph id of a run of a
+// color font, of a cluster c presented as text (emojiCluster), alone when
+// it is the cluster's only glyph: Segoe UI Symbol's glyph of the cluster's
+// character, as Windows has that monochrome font for most symbols Segoe UI
+// Emoji draws in color, else id's outline in monochrome. The glyph keeps
+// the advance the run laid it out with.
+func (e *dwrite) textGlyph(r dwRun, c []uint16, id uint32, alone bool) (*Font, uint32) {
+	if alone && e.hasSystem("Segoe UI Symbol") {
+		ch := uint32(c[0])
+		if utf16.IsSurrogate(rune(ch)) && len(c) > 1 {
+			ch = uint32(utf16.DecodeRune(rune(ch), rune(c[1])))
+		}
+		var sid uint16
+		if f := e.font(Style{Family: "Segoe UI Symbol", Size: r.size}); f != nil {
+			call(f.native, faceGetGlyphIndices, uintptr(unsafe.Pointer(&ch)), 1, uintptr(unsafe.Pointer(&sid)))
+			if sid != 0 {
+				return f, uint32(sid)
+			}
+		}
+	}
+	return e.fontOf(r.face, r.size, true), id
 }
 
 // isColor reports whether a font face has color glyphs.
