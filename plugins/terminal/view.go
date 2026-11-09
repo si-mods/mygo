@@ -988,7 +988,7 @@ func (v *view) paste() bool {
 		if t.opts.OnPaste(d) {
 			return true
 		}
-	case t.readsClipboard():
+	case t.ReadsClipboard():
 		var formats []transfer.Format
 		for _, f := range held {
 			if offerMIME(f) != "" {
