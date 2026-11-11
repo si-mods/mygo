@@ -1329,6 +1329,13 @@ func (v *view) linkAt(col, row int) (link string, path bool, at linkSpan) {
 		for x1 < v.cols && v.hyperlinkAt(x1, row) == url {
 			x1++
 		}
+		text, cols := t.term.RowText(row)
+		if u, a, b, ok := v.autolink(url, text, cols, x0, x1); ok {
+			if u == "" || col < a || col >= b {
+				return "", false, linkSpan{}
+			}
+			return u, false, linkSpan{row, a, b}
+		}
 		return url, false, linkSpan{row, x0, x1}
 	}
 	text, cols := t.term.RowText(row)
@@ -1341,6 +1348,49 @@ func (v *view) linkAt(col, row int) (link string, path bool, at linkSpan) {
 		}
 	}
 	return "", false, linkSpan{}
+}
+
+// autolink reads a hyperlink whose cells print its URL, as a Markdown
+// autolink's do, as that URL printed as text: such a program may take the
+// prose after a URL for part of it, as the 。工单 of https://x.y/a。工单.
+// Given the hyperlink's cells on a row, x0 up to x1, it returns the URL that
+// urlAt finds and the cells it spans, or "" when the cells print only the
+// prose, with ok. ok is false for a URL urlAt takes whole, and for cells
+// that print other text; a URL wrapped onto rows fills each row but where it
+// starts or ends. t.mu is held.
+func (v *view) autolink(url string, text []rune, cols []int, x0, x1 int) (u string, a, b int, ok bool) {
+	m := urlPattern.FindStringIndex(url)
+	if m == nil || m[0] != 0 || trimURL(url[:m[1]]) == url {
+		return "", 0, 0, false
+	}
+	var printed []rune
+	first := -1
+	for i, c := range cols {
+		if x0 <= c && c < x1 {
+			if first < 0 {
+				first = i
+			}
+			printed = append(printed, text[i])
+		}
+	}
+	whole := []rune(url)
+	off := strings.Index(url, string(printed))
+	if len(printed) == 0 || off < 0 {
+		return "", 0, 0, false
+	}
+	off = utf8.RuneCountInString(url[:off])
+	if x0 > 0 && off > 0 || x1 < v.cols && off+len(printed) < len(whole) {
+		return "", 0, 0, false
+	}
+	u = trimURL(url[:m[1]])
+	n := utf8.RuneCountInString(u) - off // the runes of u on this row
+	if n <= 0 {
+		return "", 0, 0, true
+	}
+	if n < len(printed) {
+		x1 = cols[first+n]
+	}
+	return u, x0, x1, true
 }
 
 // hyperlinkAt is the URL of the hyperlink (OSC 8) at the cell, or ""; t.mu

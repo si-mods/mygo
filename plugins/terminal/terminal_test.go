@@ -3466,3 +3466,52 @@ func TestPerformableCopyKeepsSelection(t *testing.T) {
 		t.Errorf("performable Control+Insert copied %q and left the selection %q, %v", tt.Clipboard(), text, ok)
 	}
 }
+
+// TestCommandClickAutolinkProse: a program that links the URL it prints
+// may take the CJK prose after it for the URL's, as Markdown's autolinks
+// do; the link is the URL printed, its cells only, and the prose no link.
+// A URL wrapped onto the next row is the same link on both, and a link
+// that prints other text is taken as it is.
+func TestCommandClickAutolinkProse(t *testing.T) {
+	loadLib(t)
+	const u = "https://github.com/si-mods/gorex"
+	link := func(url, text string) string { return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\" }
+	for _, tc := range []struct {
+		name, feed string
+		col, row   int
+		want       string
+		span       linkSpan
+	}{
+		{"url", link(u+"。工单类型选的是", u+"。工单类型选的是") + " x", 3, 0, u, linkSpan{0, 0, 32}},
+		{"prose", link(u+"。工单类型选的是", u+"。工单类型选的是") + " x", 36, 0, "", linkSpan{}},
+		{"wrapped head", "\x1b[28G" + link(u+"。工单", u+"。工单"), 30, 0, u, linkSpan{0, 27, 48}},
+		{"wrapped tail", "\x1b[28G" + link(u+"。工单", u+"。工单"), 3, 1, u, linkSpan{1, 0, 11}},
+		{"wrapped prose", "\x1b[28G" + link(u+"。工单", u+"。工单"), 12, 1, "", linkSpan{}},
+		{"label", link(u+"。工单", "文档") + " x", 1, 0, u + "。工单", linkSpan{0, 2, 6}},
+		{"clean", link(u, u) + "。工单", 3, 0, u, linkSpan{0, 0, 32}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			term, err := New(Options{Conn: newPipe()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer term.Close()
+			if tc.name == "label" {
+				tc.feed = "文" + tc.feed
+				tc.col += 2
+			}
+			term.Feed([]byte(tc.feed))
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+			tt.Frame()
+			if term.v.cols != 48 {
+				t.Fatalf("%d columns, the cases want 48", term.v.cols)
+			}
+			term.mu.Lock()
+			got, _, span := term.v.linkAt(tc.col, tc.row)
+			term.mu.Unlock()
+			if got != tc.want || span != tc.span {
+				t.Errorf("link at %d,%d is %q %+v, want %q %+v", tc.col, tc.row, got, span, tc.want, tc.span)
+			}
+		})
+	}
+}
