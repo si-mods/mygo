@@ -1131,6 +1131,14 @@ func (v *view) pointerEvent(ev ui.InputEvent) bool {
 		v.opening, v.openingPath, v.linkPress = link, path, true
 		return true
 	}
+	// Command over the prose a program's autolink takes, which linkAt
+	// finds no link in: the click opens nothing, nor goes to the program,
+	// which would open the URL with the prose.
+	if link == "" && ev.Kind == ui.InputPointerDown && ev.Button == 0 && ev.Mods&ui.Cmd != 0 &&
+		!v.selecting && !v.reporting && !v.overScrollbar(ev.X, ev.Y) && v.hyperlinkAt(v.cellAt(ev.X, ev.Y)) != "" {
+		v.linkPress = true
+		return true
+	}
 	tracking := t.term.MouseTracking() && ev.Mods&ui.Shift == 0
 	if tracking && !v.selecting || v.reporting {
 		return v.report(ev)

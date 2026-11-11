@@ -3522,3 +3522,37 @@ func TestCommandClickAutolinkProse(t *testing.T) {
 		})
 	}
 }
+
+// TestCommandClickAutolinkProseToNoOne: a Command click on the prose a
+// program's autolink takes opens nothing and goes to no program that takes
+// the mouse, which would open the URL with the prose; one on its URL opens
+// the URL printed.
+func TestCommandClickAutolinkProseToNoOne(t *testing.T) {
+	loadLib(t)
+	conn := newPipe()
+	term, err := New(Options{Conn: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	const u = "https://github.com/si-mods/gorex"
+	term.Feed([]byte("\x1b[?1002h\x1b[?1006h\x1b]8;;" + u + "。工单\x1b\\" + u + "。工单\x1b]8;;\x1b\\ x"))
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	x, y := cellCenter(term, 34, 0)
+	tt.ClickAtWith(ui.Cmd, x, y)
+	x, y = cellCenter(term, 3, 0)
+	tt.ClickAtWith(ui.Cmd, x, y)
+	if got := tt.OpenedURLs(); !slices.Equal(got, []string{u}) {
+		t.Errorf("system opened %q, want only %q", got, u)
+	}
+	if got := conn.take(term); got != "" {
+		t.Errorf("sent %q to the program, want nothing", got)
+	}
+	// Elsewhere a Command click still goes to the program.
+	x, y = cellCenter(term, 40, 0)
+	tt.ClickAtWith(ui.Cmd, x, y)
+	if got := conn.take(term); strings.Count(got, "\x1b[<") != 2 {
+		t.Errorf("sent %q, want the press and the release of a click off the link", got)
+	}
+}
