@@ -1330,7 +1330,7 @@ func (v *view) linkAt(col, row int) (link string, path bool, at linkSpan) {
 			x1++
 		}
 		text, cols := t.term.RowText(row)
-		if u, a, b, ok := v.autolink(url, text, cols, x0, x1); ok {
+		if u, a, b, ok := v.autolink(url, row, text, cols, x0, x1); ok {
 			if u == "" || col < a || col >= b {
 				return "", false, linkSpan{}
 			}
@@ -1353,12 +1353,14 @@ func (v *view) linkAt(col, row int) (link string, path bool, at linkSpan) {
 // autolink reads a hyperlink whose cells print its URL, as a Markdown
 // autolink's do, as that URL printed as text: such a program may take the
 // prose after a URL for part of it, as the 。工单 of https://x.y/a。工单.
-// Given the hyperlink's cells on a row, x0 up to x1, it returns the URL that
+// Given the hyperlink's cells on row, x0 up to x1, it returns the URL that
 // urlAt finds and the cells it spans, or "" when the cells print only the
-// prose, with ok. ok is false for a URL urlAt takes whole, and for cells
-// that print other text; a URL wrapped onto rows fills each row but where it
-// starts or ends. t.mu is held.
-func (v *view) autolink(url string, text []rune, cols []int, x0, x1 int) (u string, a, b int, ok bool) {
+// prose, with ok. The cells print the URL from its start, or a part of it
+// that goes on from the row above, which holds the same hyperlink: a long
+// URL wraps, by the terminal or by the program, often with an indent. ok is
+// false for a URL urlAt takes whole, and for cells that print other text.
+// t.mu is held.
+func (v *view) autolink(url string, row int, text []rune, cols []int, x0, x1 int) (u string, a, b int, ok bool) {
 	m := urlPattern.FindStringIndex(url)
 	if m == nil || m[0] != 0 || trimURL(url[:m[1]]) == url {
 		return "", 0, 0, false
@@ -1373,16 +1375,17 @@ func (v *view) autolink(url string, text []rune, cols []int, x0, x1 int) (u stri
 			printed = append(printed, text[i])
 		}
 	}
-	whole := []rune(url)
 	off := strings.Index(url, string(printed))
 	if len(printed) == 0 || off < 0 {
 		return "", 0, 0, false
 	}
 	off = utf8.RuneCountInString(url[:off])
-	if x0 > 0 && off > 0 || x1 < v.cols && off+len(printed) < len(whole) {
+	if off > 0 && !v.hasHyperlink(url, row-1) {
 		return "", 0, 0, false
 	}
-	u = trimURL(url[:m[1]])
+	if u = trimURL(url[:m[1]]); !urlPattern.MatchString(u) {
+		return "", 0, 0, false
+	}
 	n := utf8.RuneCountInString(u) - off // the runes of u on this row
 	if n <= 0 {
 		return "", 0, 0, true
@@ -1391,6 +1394,17 @@ func (v *view) autolink(url string, text []rune, cols []int, x0, x1 int) (u stri
 		x1 = cols[first+n]
 	}
 	return u, x0, x1, true
+}
+
+// hasHyperlink reports whether a cell of row has the hyperlink url; t.mu
+// is held.
+func (v *view) hasHyperlink(url string, row int) bool {
+	for x := 0; x < v.cols && row >= 0; x++ {
+		if v.hyperlinkAt(x, row) == url {
+			return true
+		}
+	}
+	return false
 }
 
 // hyperlinkAt is the URL of the hyperlink (OSC 8) at the cell, or ""; t.mu
