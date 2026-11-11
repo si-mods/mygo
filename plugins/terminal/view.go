@@ -1367,7 +1367,7 @@ func (v *view) linkAt(col, row int) (link string, path bool, at linkSpan) {
 // that goes on from the row above, which holds the same hyperlink: a long
 // URL wraps, by the terminal or by the program, often with an indent. ok is
 // false for a URL urlAt takes whole, and for cells that print other text.
-// t.mu is held.
+// A row under one scrolled out of sight may go on from it. t.mu is held.
 func (v *view) autolink(url string, row int, text []rune, cols []int, x0, x1 int) (u string, a, b int, ok bool) {
 	m := urlPattern.FindStringIndex(url)
 	if m == nil || m[0] != 0 || trimURL(url[:m[1]]) == url {
@@ -1388,7 +1388,8 @@ func (v *view) autolink(url string, row int, text []rune, cols []int, x0, x1 int
 		return "", 0, 0, false
 	}
 	off = utf8.RuneCountInString(url[:off])
-	if off > 0 && !v.hasHyperlink(url, row-1) {
+	outOfSight := row == 0 && v.t.term.Scrollbar().Offset > 0 // the row above
+	if off > 0 && !outOfSight && !v.hasHyperlink(url, row-1) {
 		return "", 0, 0, false
 	}
 	if u = trimURL(url[:m[1]]); !urlPattern.MatchString(u) {

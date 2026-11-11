@@ -3523,6 +3523,30 @@ func TestCommandClickAutolinkProse(t *testing.T) {
 	}
 }
 
+// TestCommandClickAutolinkProseTopRow: a wrapped autolink whose first row
+// went out of sight is read on the top row as the rest of the URL printed.
+func TestCommandClickAutolinkProseTopRow(t *testing.T) {
+	loadLib(t)
+	term, err := New(Options{Conn: newPipe()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Close()
+	const u = "https://github.com/si-mods/gorex"
+	link := func(text string) string { return "\x1b]8;;" + u + "。工单类型\x1b\\" + text + "\x1b]8;;\x1b\\" }
+	tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+	tt.Frame()
+	term.Feed([]byte("  " + link(u[:20]) + "\r\n  " + link(u[20:]+"。工单类型") + strings.Repeat("\r\n", term.v.rows-1)))
+	tt.Frame()
+	term.mu.Lock()
+	got, _, span := term.v.linkAt(4, 0)
+	prose, _, _ := term.v.linkAt(16, 0)
+	term.mu.Unlock()
+	if got != u || span != (linkSpan{0, 2, 14}) || prose != "" {
+		t.Errorf("top row: link %q %+v, prose %q; want %q over 2..14 and no link", got, span, prose, u)
+	}
+}
+
 // TestCommandClickAutolinkProseToNoOne: a Command click on the prose a
 // program's autolink takes opens nothing and goes to no program that takes
 // the mouse, which would open the URL with the prose; one on its URL opens
