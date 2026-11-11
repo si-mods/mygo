@@ -3488,6 +3488,7 @@ func TestCommandClickAutolinkProse(t *testing.T) {
 		{"wrapped tail", "\x1b[28G" + link(u+"。工单", u+"。工单"), 3, 1, u, linkSpan{1, 0, 11}},
 		{"wrapped prose", "\x1b[28G" + link(u+"。工单", u+"。工单"), 12, 1, "", linkSpan{}},
 		{"label", link(u+"。工单", "文档") + " x", 1, 0, u + "。工单", linkSpan{0, 2, 6}},
+		{"label at the start", link("https://example.com/文档", "文档") + " x", 1, 0, "https://example.com/文档", linkSpan{0, 0, 4}},
 		{"indented head", "  " + link(u+"。工单类型", u[:20]) + "\r\n  " + link(u+"。工单类型", u[20:]+"。工单类型"), 4, 0, u, linkSpan{0, 2, 22}},
 		{"indented tail", "  " + link(u+"。工单类型", u[:20]) + "\r\n  " + link(u+"。工单类型", u[20:]+"。工单类型"), 4, 1, u, linkSpan{1, 2, 14}},
 		{"indented prose", "  " + link(u+"。工单类型", u[:20]) + "\r\n  " + link(u+"。工单类型", u[20:]+"。工单类型"), 16, 1, "", linkSpan{}},
