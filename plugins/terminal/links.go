@@ -24,8 +24,13 @@ var pathToken = regexp.MustCompile(`[^\s"'<>` + "`" + proseDelimiters + `]+`)
 
 // pathInToken finds a path inside a token that is not one as a whole, as
 // main.go:12 in grep's main.go:12:code, build/app.js in --out=build/app.js
-// or /usr/bin in PATH=/usr/bin:/bin.
-var pathInToken = regexp.MustCompile(`(?:(?:~|\.{1,2})?/[^\s:]+|[\p{L}\p{N}_.@+-]+(?:/[\p{L}\p{N}_.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\p{L}\p{N}_@+-][\p{L}\p{N}_.@+-]*\.[\p{L}\p{N}_]+(?::\d+(?::\d+)?)?`)
+// or /usr/bin in PATH=/usr/bin:/bin. A drive path, as C:\src\a.go, starts at
+// a word boundary: abc:/foo holds no drive.
+var pathInToken = regexp.MustCompile(`(?:\b[A-Za-z]:[\\/][^\s:]+|(?:~|\.{1,2})?/[^\s:]+|[\p{L}\p{N}_.@+-]+(?:/[\p{L}\p{N}_.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\p{L}\p{N}_@+-][\p{L}\p{N}_.@+-]*\.[\p{L}\p{N}_]+(?::\d+(?::\d+)?)?`)
+
+// drivePath finds the drive a Windows path starts with, as C:\ or D:/. Only
+// a path with one takes \ as a separator.
+var drivePath = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
 // quotedPlace finds the place after a quoted path, as "main.py":12.
 var quotedPlace = regexp.MustCompile(`^:\d+(?::\d+)?`)
@@ -168,13 +173,18 @@ func pathOf(tok string) (path string, a, b int) {
 	}
 	// ~/ ./ and ../ alone are directories, as docs/ is. They hold no letter.
 	dirOnly := name == "~/" || name == "./" || name == "../"
-	if !dirOnly && (name == "" || strings.ContainsAny(name, ":\x00\r\n") ||
+	drive := drivePath.MatchString(name)
+	rest := name
+	if drive {
+		rest = name[2:] // the colon after the drive letter is part of it
+	}
+	if !dirOnly && (name == "" || strings.ContainsAny(rest, ":\x00\r\n") ||
 		strings.IndexFunc(name, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) < 0) {
 		return "", 0, 0
 	}
 	// Words are not paths: a name without a slash takes a letter, and an
 	// extension or a line, so that version 1.2.3 and 12:30 are neither.
-	if !strings.Contains(name, "/") {
+	if !drive && !strings.Contains(name, "/") {
 		dot := strings.LastIndexByte(name, '.')
 		if strings.IndexFunc(name, unicode.IsLetter) < 0 || line == 0 && (dot < 0 || dot == len(name)-1) {
 			return "", 0, 0
@@ -275,7 +285,8 @@ func trimURL(u string) string {
 // prose (w/, I/, yes/no/) prints too. pathAt writes every place as
 // path:line:col, so the line is stripped before the slash is read.
 func isDir(path string) bool {
-	return strings.HasSuffix(lineSuffix.ReplaceAllString(path, ""), "/")
+	path = lineSuffix.ReplaceAllString(path, "")
+	return strings.HasSuffix(path, "/") || drivePath.MatchString(path) && strings.HasSuffix(path, `\`)
 }
 
 // lineSuffix is the :line or :line:col at the end of a path.

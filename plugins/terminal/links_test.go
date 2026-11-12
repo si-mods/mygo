@@ -139,10 +139,59 @@ func TestURLAtSpan(t *testing.T) {
 func TestIsDir(t *testing.T) {
 	for path, want := range map[string]bool{
 		"docs/": true, "~/": true, "docs/:12": true, "w/:3:4": true, "/a/b/": true,
+		`C:\Users\`: true, `C:\Users\:3`: true, `C:/x/`: true, `C:\a.txt`: false, `a\b\`: false,
 		"docs": false, "a/b": false, "main.go:12": false, "a.go:1:2": false,
 	} {
 		if got := isDir(path); got != want {
 			t.Errorf("isDir(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// TestPathAtDrive: a path with a drive prefix takes \ as a separator and
+// keeps the separators as printed; no other path does.
+func TestPathAtDrive(t *testing.T) {
+	for _, c := range []struct {
+		row  string
+		at   string // the text the click lands on, its first rune
+		want string
+		span string // the text the link covers, or "" for none
+	}{
+		{`修复前：截图 C:\Users\me\AppData\Local\Temp\ego-e2e\table-4.png。和你看到`, `Users`, `C:\Users\me\AppData\Local\Temp\ego-e2e\table-4.png`, `C:\Users\me\AppData\Local\Temp\ego-e2e\table-4.png`},
+		{`截图 C:/Users/me/AppData/Local/Temp/table-4.png。和你`, `Users`, `C:/Users/me/AppData/Local/Temp/table-4.png`, `C:/Users/me/AppData/Local/Temp/table-4.png`},
+		{`C:\a\b.png`, `a`, `C:\a\b.png`, `C:\a\b.png`},
+		{`open D:/x/y.go now`, `x/`, `D:/x/y.go`, `D:/x/y.go`},
+		{`C:\src\main.go:12:3`, `src`, `C:\src\main.go:12:3`, `C:\src\main.go:12:3`},
+		{`C:\src\main.go(12,3)`, `src`, `C:\src\main.go:12:3`, `C:\src\main.go(12,3)`},
+		{`C:\src\main.go:12:3: undefined`, `src`, `C:\src\main.go:12:3`, `C:\src\main.go:12:3`},
+		{`C:\src\main.go:12:code`, `src`, `C:\src\main.go:12`, `C:\src\main.go:12`},
+		{`--out=C:\build\app.js`, `build`, `C:\build\app.js`, `C:\build\app.js`},
+		{`"C:\Program Files\app\a.txt"`, `Files`, `C:\Program Files\app\a.txt`, `"C:\Program Files\app\a.txt"`},
+		{`"C:\Program Files\app\a.txt":12`, `Files`, `C:\Program Files\app\a.txt:12`, `"C:\Program Files\app\a.txt":12`},
+		{`(C:\a\b.png)`, `a\b`, `C:\a\b.png`, `C:\a\b.png`},
+		{`see C:\a\b.png.`, `a\b`, `C:\a\b.png`, `C:\a\b.png`},
+		{`C:\a\b.png, then`, `a\b`, `C:\a\b.png`, `C:\a\b.png`},
+		{`（C:\a\b.png）`, `a\b`, `C:\a\b.png`, `C:\a\b.png`},
+		{`cd C:\Users\ now`, `Users`, `C:\Users\`, `C:\Users\`},
+		// Not drive paths: the drive letter must start the path, and \ is no
+		// separator elsewhere.
+		{`abc:/foo`, `foo`, `/foo`, `/foo`},
+		{`http:/x`, `x`, `/x`, `/x`},
+		{`a\b\c`, `b`, ``, ``},
+		{`\alpha and \n`, `alpha`, ``, ``},
+		{`C:\`, `C`, `C:\`, `C:\`},
+		{`C:foo.txt`, `foo`, `foo.txt`, `foo.txt`},
+		{`12:30`, `12`, ``, ``},
+	} {
+		text := []rune(c.row)
+		cols := make([]int, len(text))
+		for i := range cols {
+			cols[i] = i
+		}
+		col := len([]rune(c.row[:strings.Index(c.row, c.at)]))
+		path, x0, x1 := pathAt(text, cols, col)
+		if path != c.want || string(text[x0:x1]) != c.span {
+			t.Errorf("pathAt(%q, %q) = %q %q, want %q %q", c.row, c.at, path, string(text[x0:x1]), c.want, c.span)
 		}
 	}
 }
