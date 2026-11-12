@@ -89,6 +89,110 @@ func pathAt(text []rune, cols []int, col int) (path string, x0, x1 int) {
 	return "", 0, 0
 }
 
+// maxLinkRows is how many rows above and below the hovered one a path may
+// wrap over.
+const maxLinkRows = 8
+
+// linkRow is a row of the viewport as pathAtRows reads it: its text and the
+// column of each rune, whether it soft-wraps into the next row, and whether
+// its text reaches the last column.
+type linkRow struct {
+	text       []rune
+	cols       []int
+	wrap, full bool
+}
+
+// goesOn reports whether the row's text may go on in the next: a terminal
+// wraps it, or a program wrapped it at the right edge.
+func (r linkRow) goesOn() bool { return r.wrap || r.full }
+
+// pathAtRows is pathAt over consecutive rows of the viewport, for a path
+// that wraps; at is the hovered row in rows and col its column. It returns
+// the columns the path covers on that row only. A row that only reaches the
+// last column is a program's wrap, which indents the next row: its leading
+// spaces are not text. The longest run of rows is tried first, then shorter
+// ones down to the hovered row alone, until isLink takes the path: text
+// that ends at the last column may be followed by an unrelated row.
+func pathAtRows(rows []linkRow, at, col int, isLink func(string) bool) (path string, x0, x1 int) {
+	lo, hi := at, at
+	for lo > 0 && at-lo < maxLinkRows && rows[lo-1].goesOn() {
+		lo--
+	}
+	for hi < len(rows)-1 && hi-at < maxLinkRows && rows[hi].goesOn() {
+		hi++
+	}
+	tried := map[string]bool{}
+	for n := hi - lo; n >= 0; n-- {
+		for a := lo; a <= at && a+n <= hi; a++ {
+			if a+n < at {
+				continue
+			}
+			var p string
+			if n == 0 {
+				p, x0, x1 = pathAt(rows[at].text, rows[at].cols, col)
+			} else {
+				p, x0, x1 = pathOverRows(rows[a:a+n+1], at-a, col)
+			}
+			if p != "" && !tried[p] {
+				if isLink(p) {
+					return p, x0, x1
+				}
+				tried[p] = true
+			}
+		}
+	}
+	return "", 0, 0
+}
+
+// pathOverRows runs pathAt on the rows joined into one line, and returns
+// the part of the path on row at.
+func pathOverRows(rows []linkRow, at, col int) (path string, x0, x1 int) {
+	var line []rune
+	var row, colOf []int // the row and the column of each rune of line
+	hovered := -1
+	for i, r := range rows {
+		text, cols := r.text, r.cols
+		if i > 0 && !rows[i-1].wrap {
+			skip := 0
+			for skip < len(text) && text[skip] == ' ' {
+				skip++
+			}
+			text, cols = text[skip:], cols[skip:]
+		}
+		for j, c := range text {
+			// A wide rune also holds the column after it.
+			if i == at && cols[j] <= col && (j+1 == len(text) || cols[j+1] > col) && col-cols[j] <= 1 {
+				hovered = len(line)
+			}
+			line, row, colOf = append(line, c), append(row, i), append(colOf, cols[j])
+		}
+	}
+	if hovered < 0 {
+		return "", 0, 0
+	}
+	ident := make([]int, len(line))
+	for i := range ident {
+		ident[i] = i
+	}
+	path, a, b := pathAt(line, ident, hovered)
+	if path == "" {
+		return "", 0, 0
+	}
+	x0, x1 = -1, 0
+	for i := a; i < b; i++ {
+		if row[i] == at {
+			if x0 < 0 {
+				x0 = colOf[i]
+			}
+			x1 = colOf[i] + 1
+		}
+	}
+	if x0 < 0 {
+		return "", 0, 0
+	}
+	return path, x0, x1
+}
+
 // quotedAt returns the bytes of s, a up to b, of a quoted run that opens at
 // byte i and the place after it, or b < 0. A quote between letters or digits,
 // as in don't, is an apostrophe and opens or closes nothing, and the inside
