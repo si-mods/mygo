@@ -144,6 +144,32 @@ func pathAtRows(rows []linkRow, at, col int, isLink func(string) bool) (path str
 	return "", 0, 0
 }
 
+// wrapped reports whether prev, a row that reaches the last column, goes
+// on in a row whose text after its indent is next: a program breaks only a
+// word too long for a row, so a rule or prose that ends at the edge is no
+// wrap. The word is the run of non-spaces on both sides of the break.
+func wrapped(prev linkRow, next []rune, cols []int) bool {
+	isText := func(r rune) bool {
+		return r > ' ' && r < 0x80 || unicode.IsLetter(r) || unicode.IsDigit(r)
+	}
+	n := len(prev.text)
+	if n == 0 || len(next) == 0 || !isText(prev.text[n-1]) || !isText(next[0]) {
+		return false
+	}
+	t := n - 1
+	for t > 0 && prev.text[t-1] != ' ' {
+		t--
+	}
+	h := 0
+	for h+1 < len(next) && next[h+1] != ' ' {
+		h++
+	}
+	end := prev.cols[n-1] + 1 // the previous row is full: the terminal's width
+	w1, indent := end-prev.cols[t], cols[0]
+	w2 := cols[h] + 1 - indent
+	return w1+w2 > end-indent
+}
+
 // pathOverRows runs pathAt on the rows joined into one line, and returns
 // the part of the path on row at.
 func pathOverRows(rows []linkRow, at, col int) (path string, x0, x1 int) {
@@ -158,6 +184,9 @@ func pathOverRows(rows []linkRow, at, col int) (path string, x0, x1 int) {
 				skip++
 			}
 			text, cols = text[skip:], cols[skip:]
+			if !wrapped(rows[i-1], text, cols) {
+				return "", 0, 0
+			}
 		}
 		for j, c := range text {
 			// A wide rune also holds the column after it.

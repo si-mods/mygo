@@ -250,10 +250,26 @@ func TestPathAtRows(t *testing.T) {
 			mkRow("see src/aaaa/bb", true, false),
 			mkRow("bb/cccc.go ok", false, false),
 		}, 1, 3, any, "src/aaaa/bbbb/cccc.go", 0, 10, -1},
-		{"over-joined candidate rejected", []linkRow{
+		{"over-joined candidate rejected by isLink", []linkRow{
+			mkRow("see src/aaaa/main.go", false, true),
+			mkRow("  for details", false, false),
+		}, 0, 10, func(p string) bool { return p == "src/aaaa/main.go" }, "src/aaaa/main.go", 4, 20, 2},
+		{"short words at the edge are no wrap", []linkRow{
 			mkRow("... see src/main.go", false, true),
 			mkRow("  for details", false, false),
-		}, 0, 10, func(p string) bool { return p == "src/main.go" }, "src/main.go", 8, 19, 2},
+		}, 0, 10, any, "src/main.go", 8, 19, 1},
+		{"rule row", []linkRow{
+			mkRow(strings.Repeat("─", 20), false, true),
+			mkRow("foo.txt is here", false, false),
+		}, 1, 2, any, "foo.txt", 0, 7, 1},
+		{"prose ending at the edge", []linkRow{
+			mkRow("some prose see the", false, true),
+			mkRow("  config.yaml is here", false, false),
+		}, 1, 5, any, "config.yaml", 2, 13, 1},
+		{"full-width punctuation at the edge", []linkRow{
+			mkRow("见文件 src/aaaa/bbbb。", false, true),
+			mkRow("  cccc/dddd.go", false, false),
+		}, 1, 5, any, "cccc/dddd.go", 2, 14, 1},
 		{"a row that does not go on is not joined", []linkRow{
 			mkRow("see src/aaaa", false, false),
 			mkRow("bbbb/cccc.go", false, false),
