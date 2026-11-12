@@ -2,6 +2,7 @@ package vt
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -353,14 +354,16 @@ func (s Style) SGR() string {
 
 // CellStyle returns the style of cell x of the row RowCells read.
 func (r *RenderState) CellStyle(x int) Style {
-	s := style{size: unsafe.Sizeof(style{})}
+	var s style
 	if ok(call(fnRowCellsSelect, r.cells, uintptr(x))) {
 		call(fnRowCellsGet, r.cells, cellDataStyle, uintptr(unsafe.Pointer(&s)))
 	}
+	f := s.flags
 	return Style{
 		FG: s.fg.color(), BG: s.bg.color(), UnderlineColor: s.underlineColor.color(),
-		Bold: s.bold, Italic: s.italic, Faint: s.faint, Blink: s.blink, Inverse: s.inverse,
-		Invisible: s.invisible, Strikethrough: s.strikethrough, Overline: s.overline, Underline: int(s.underline),
+		Bold: f&styleBold != 0, Italic: f&styleItalic != 0, Faint: f&styleFaint != 0, Blink: f&styleBlink != 0, Inverse: f&styleInverse != 0,
+		Invisible: f&styleInvisible != 0, Strikethrough: f&styleStrikethrough != 0, Overline: f&styleOverline != 0,
+		Underline: int(f&styleUnderlineMask) >> styleUnderlineShift,
 	}
 }
 
@@ -376,8 +379,13 @@ func (r *RenderState) CellGraphemes(x int, buf []rune) []rune {
 		return buf
 	}
 	cps := make([]uint32, n)
-	call(fnRowCellsGet, r.cells, cellDataGraphemesBuf, uintptr(unsafe.Pointer(&cps[0])))
-	for _, c := range cps {
+	// The buffer holds the address of cps, which the call does not see.
+	var pin runtime.Pinner
+	defer pin.Unpin()
+	pin.Pin(&cps[0])
+	b := codepointBuffer{ptr: uintptr(unsafe.Pointer(&cps[0])), cap: uintptr(n)}
+	call(fnRowCellsGet, r.cells, cellDataGraphemesBuf, uintptr(unsafe.Pointer(&b)))
+	for _, c := range cps[:min(b.len, uintptr(n))] {
 		buf = append(buf, rune(c))
 	}
 	return buf

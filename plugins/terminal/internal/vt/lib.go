@@ -32,11 +32,11 @@ var (
 	fnRenderStateGet, fnRowIteratorNew, fnRowIteratorFree, fnRowIteratorNext, fnRowGet,
 	fnRowCellsNew, fnRowCellsFree, fnRowCellsSelect, fnRowCellsGet uintptr
 
-	fnKeyEncoderNew, fnKeyEncoderFree, fnKeyEncoderSetopt, fnKeyEncoderSetoptFromTerminal, fnKeyEncoderEncode,
+	fnKeyEncoderNew, fnKeyEncoderFree, fnKeyEncoderSet, fnKeyEncoderSetFromTerminal, fnKeyEncoderEncode,
 	fnKeyEventNew, fnKeyEventFree, fnKeyEventSetAction, fnKeyEventSetKey, fnKeyEventSetMods,
-	fnKeyEventSetConsumedMods, fnKeyEventSetComposing, fnKeyEventSetUTF8, fnKeyEventSetUnshifted uintptr
+	fnKeyEventSetConsumedMods, fnKeyEventSetComposing, fnKeyEventSetUnshifted uintptr
 
-	fnMouseEncoderNew, fnMouseEncoderFree, fnMouseEncoderSetopt, fnMouseEncoderSetoptFromTerminal,
+	fnMouseEncoderNew, fnMouseEncoderFree, fnMouseEncoderSet, fnMouseEncoderSetFromTerminal,
 	fnMouseEncoderReset, fnMouseEncoderEncode, fnMouseEventNew, fnMouseEventFree, fnMouseEventSetAction,
 	fnMouseEventSetButton, fnMouseEventClearButton, fnMouseEventSetMods uintptr
 
@@ -47,15 +47,17 @@ var (
 	fnGestureNew, fnGestureFree, fnGestureReset, fnGestureGet, fnGestureEventNew, fnGestureEventFree,
 	fnGestureEventSet, fnGestureEvent, fnSelectAll uintptr
 
-	fnGridRefHyperlinkURI, fnGridRefGraphemes, fnGridRefCell, fnGridRefRow, fnRowData, fnTypeJSON, fnFormatterFormatAlloc, fnFormatterFree uintptr
+	fnGridRefHyperlinkURI, fnGridRefGraphemes, fnGridRefCell, fnGridRefRow, fnRowData, fnTypeJSON,
+	fnFormatterTerminalNew, fnFormatterSet, fnFormatterFormatAlloc, fnFormatterFree uintptr
 
-	fnSearchNew, fnSearchFree, fnSearchSet, fnSearchGet, fnSearchFeed, fnSearchTick, fnPointFromGridRef uintptr
+	fnSearchNew, fnSearchFree, fnSearchSet, fnSearchGet, fnSearchFeed, fnSearchTick, fnSearchSelectNext, fnSearchSelectPrev,
+	fnPointFromGridRef uintptr
 
 	fnKittyGet, fnKittyImage, fnKittyImageGet, fnPlacementIteratorNew, fnPlacementIteratorFree,
 	fnPlacementNext, fnPlacementGet, fnPlacementRenderInfo, fnSysSet, fnAlloc uintptr
 
 	// Bound with registerFunc below: they take structs or floats.
-	fnTerminalScrollViewport, fnTerminalGridRef, fnMouseEventSetPosition, fnSelectionFormatAlloc, fnFormatterTerminalNew uintptr
+	fnTerminalScrollViewport, fnTerminalGridRef, fnMouseEventSetPosition, fnKeyEventSetUTF8 uintptr
 )
 
 // Functions taking structs or floats by value, which purego passes as the
@@ -64,8 +66,7 @@ var (
 	terminalScrollViewport func(t uintptr, v scrollViewport)
 	terminalGridRef        func(t uintptr, p point, out *GridRef) int32
 	mouseEventSetPosition  func(ev uintptr, pos mousePosition)
-	selectionFormatAlloc   func(t uintptr, alloc uintptr, opts selectionFormatOptions, out *uintptr, n *uintptr) int32
-	formatterTerminalNew   func(alloc uintptr, out *uintptr, t uintptr, opts formatterOptions) int32
+	keyEventSetUTF8        func(ev uintptr, utf8 cString) int32
 )
 
 var symbols = []struct {
@@ -99,8 +100,8 @@ var symbols = []struct {
 	{"ghostty_render_state_row_cells_get", &fnRowCellsGet},
 	{"ghostty_key_encoder_new", &fnKeyEncoderNew},
 	{"ghostty_key_encoder_free", &fnKeyEncoderFree},
-	{"ghostty_key_encoder_setopt", &fnKeyEncoderSetopt},
-	{"ghostty_key_encoder_setopt_from_terminal", &fnKeyEncoderSetoptFromTerminal},
+	{"ghostty_key_encoder_set", &fnKeyEncoderSet},
+	{"ghostty_key_encoder_set_from_terminal", &fnKeyEncoderSetFromTerminal},
 	{"ghostty_key_encoder_encode", &fnKeyEncoderEncode},
 	{"ghostty_key_event_new", &fnKeyEventNew},
 	{"ghostty_key_event_free", &fnKeyEventFree},
@@ -113,8 +114,8 @@ var symbols = []struct {
 	{"ghostty_key_event_set_unshifted_codepoint", &fnKeyEventSetUnshifted},
 	{"ghostty_mouse_encoder_new", &fnMouseEncoderNew},
 	{"ghostty_mouse_encoder_free", &fnMouseEncoderFree},
-	{"ghostty_mouse_encoder_setopt", &fnMouseEncoderSetopt},
-	{"ghostty_mouse_encoder_setopt_from_terminal", &fnMouseEncoderSetoptFromTerminal},
+	{"ghostty_mouse_encoder_set", &fnMouseEncoderSet},
+	{"ghostty_mouse_encoder_set_from_terminal", &fnMouseEncoderSetFromTerminal},
 	{"ghostty_mouse_encoder_reset", &fnMouseEncoderReset},
 	{"ghostty_mouse_encoder_encode", &fnMouseEncoderEncode},
 	{"ghostty_mouse_event_new", &fnMouseEventNew},
@@ -153,7 +154,6 @@ var symbols = []struct {
 	{"ghostty_selection_gesture_event_set", &fnGestureEventSet},
 	{"ghostty_selection_gesture_event", &fnGestureEvent},
 	{"ghostty_terminal_select_all", &fnSelectAll},
-	{"ghostty_terminal_selection_format_alloc", &fnSelectionFormatAlloc},
 	{"ghostty_grid_ref_hyperlink_uri", &fnGridRefHyperlinkURI},
 	{"ghostty_grid_ref_graphemes", &fnGridRefGraphemes},
 	{"ghostty_grid_ref_cell", &fnGridRefCell},
@@ -161,6 +161,7 @@ var symbols = []struct {
 	{"ghostty_row_get", &fnRowData},
 	{"ghostty_type_json", &fnTypeJSON},
 	{"ghostty_formatter_terminal_new", &fnFormatterTerminalNew},
+	{"ghostty_formatter_set", &fnFormatterSet},
 	{"ghostty_formatter_format_alloc", &fnFormatterFormatAlloc},
 	{"ghostty_formatter_free", &fnFormatterFree},
 	{"ghostty_search_new", &fnSearchNew},
@@ -169,6 +170,8 @@ var symbols = []struct {
 	{"ghostty_search_get", &fnSearchGet},
 	{"ghostty_search_feed", &fnSearchFeed},
 	{"ghostty_search_tick", &fnSearchTick},
+	{"ghostty_search_select_next", &fnSearchSelectNext},
+	{"ghostty_search_select_prev", &fnSearchSelectPrev},
 	{"ghostty_terminal_point_from_grid_ref", &fnPointFromGridRef},
 }
 
@@ -201,8 +204,7 @@ func load(path string) error {
 	registerFunc(&terminalScrollViewport, fnTerminalScrollViewport)
 	registerFunc(&terminalGridRef, fnTerminalGridRef)
 	registerFunc(&mouseEventSetPosition, fnMouseEventSetPosition)
-	registerFunc(&selectionFormatAlloc, fnSelectionFormatAlloc)
-	registerFunc(&formatterTerminalNew, fnFormatterTerminalNew)
+	registerFunc(&keyEventSetUTF8, fnKeyEventSetUTF8)
 	makeCallbacks()
 	decodePNG()
 	return nil
@@ -227,6 +229,7 @@ const (
 	IOError     Result = -5
 	Exceeded    Result = -6
 	Rejected    Result = -7
+	Unsupported Result = -8
 )
 
 func (r Result) Error() string {
@@ -245,6 +248,8 @@ func (r Result) Error() string {
 		return "libghostty-vt: limit exceeded"
 	case Rejected:
 		return "libghostty-vt: rejected"
+	case Unsupported:
+		return "libghostty-vt: unsupported"
 	}
 	return fmt.Sprintf("libghostty-vt: error %d", int32(r))
 }
@@ -335,8 +340,10 @@ var enums = []struct {
 	{"GhosttyKeyAction", "REPEAT", int64(KeyRepeat)},
 	{"GhosttyMouseAction", "MOTION", int64(MouseMotion)},
 	{"GhosttyMouseButton", "FIVE", WheelDown},
-	{"GhosttyRenderStateCursorVisualStyle", "BLOCK_HOLLOW", int64(CursorBlockHollow)},
+	{"GhosttyCursorStyle", "BLOCK_HOLLOW", int64(CursorBlockHollow)},
 	{"GhosttyRenderStateDirty", "FULL", int64(Full)},
+	{"GhosttyTerminalOption", "USERDATA", optUserdata},
+	{"GhosttyTerminalOption", "RENDER_HOLD", optRenderHold},
 	{"GhosttyTerminalData", "KITTY_GRAPHICS", dataKittyGraphics},
 	{"GhosttyTerminalData", "COLOR_FOREGROUND", dataColorFg},
 	{"GhosttyTerminalData", "COLOR_FOREGROUND_DEFAULT", dataColorFgDefault},
@@ -349,6 +356,7 @@ var enums = []struct {
 	{"GhosttyRowSemanticPrompt", "PROMPT_CONTINUATION", int64(PromptContinuation)},
 	{"GhosttyRenderStateRowData", "RAW", rowDataRaw},
 	{"GhosttyKittyGraphicsPlacementData", "Z", placementZ},
+	{"GhosttyKittyGraphicsImageData", "PIXELS", imagePixels},
 	{"GhosttyKittyGraphicsImageData", "GENERATION", imageGeneration},
 	{"GhosttyKittyImageFormat", "GRAY", int64(ImageGray)},
 	{"GhosttySysOption", "DECODE_PNG", sysDecodePNG},
@@ -359,11 +367,27 @@ var enums = []struct {
 	{"GhosttyPointTag", "VIEWPORT", 1},
 	{"GhosttyClipboardWriteResult", "UNSUPPORTED", 2},
 	{"GhosttySelectionGestureEventType", "DRAG", gestureDrag},
+	{"GhosttySelectionGestureEventOption", "VIEWPORT", gestureOptViewport},
+	{"GhosttySelectionGestureData", "AUTOSCROLL", gestureDataAutoscroll},
 	{"GhosttySearchStatus", "COMPLETE", int64(SearchComplete)},
-	{"GhosttySearchOption", "SELECT_PREV", searchOptSelectPrev},
+	{"GhosttySearchOption", "SELECT_SCROLL", searchOptSelectScroll},
 	{"GhosttySearchData", "VIEWPORT_MATCHES", searchDataViewportMatches},
 	{"GhosttySearchScroll", "NONE", searchScrollNone},
 	{"GhosttyPointTag", "SCREEN", pointScreen},
+	{"GhosttyKeyEncoderOption", "MACOS_OPTION_AS_ALT", keyOptMacOSOptionAsAlt},
+	{"GhosttyMouseEncoderOption", "TRACK_LAST_CELL", mouseOptTrackLastCell},
+	{"GhosttyFormatterOption", "EXTRAS", formatterOptExtras},
+	{"GhosttySnapshotDecoderOption", "RETAIN_CONTINUATION", snapshotDecoderRetain},
+}
+
+// styleFlags are the bits of GhosttyStyleFlags this package hardcodes,
+// which the manifest must agree with.
+var styleFlags = []struct {
+	name       string
+	lsb, width uint
+}{
+	{"bold", 0, 1}, {"italic", 1, 1}, {"faint", 2, 1}, {"blink", 3, 1}, {"inverse", 4, 1},
+	{"invisible", 5, 1}, {"strikethrough", 6, 1}, {"overline", 7, 1}, {"underline", styleUnderlineShift, 3},
 }
 
 type fieldInfo struct {
@@ -426,6 +450,11 @@ func (m *manifest) check() error {
 	for _, e := range enums {
 		if v, ok := m.Types[e.typ].Values[e.name]; !ok || v != e.value {
 			return fmt.Errorf("%s %s is not %d", e.typ, e.name, e.value)
+		}
+	}
+	for _, f := range styleFlags {
+		if b, ok := m.Types["GhosttyStyleFlags"].Bits[f.name]; !ok || b.LSB != f.lsb || b.Width != f.width {
+			return fmt.Errorf("GhosttyStyleFlags %s is not bits %d+%d", f.name, f.lsb, f.width)
 		}
 	}
 	c, ok := m.Types["GhosttyCell"]

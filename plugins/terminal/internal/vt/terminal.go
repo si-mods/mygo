@@ -116,32 +116,33 @@ func terminalOf(id uintptr) *Terminal {
 
 // Terminal options and data (GhosttyTerminalOption, GhosttyTerminalData).
 const (
-	optUserdata            = 0
-	optWritePTY            = 1
-	optBell                = 2
-	optTitleChanged        = 5
-	optSize                = 6
-	optColorScheme         = 7
-	optDeviceAttributes    = 8
-	optColorForeground     = 11
-	optColorBackground     = 12
-	optColorCursor         = 13
-	optColorPalette        = 14
-	optKittyImageLimit     = 15
-	optDefaultCursorStyle  = 22
-	optDefaultCursorBlink  = 23
-	optPwdChanged          = 25
-	optClipboardWrite      = 26
-	optClipboardRead       = 38
-	optScrollbackMaxBytes  = 27
-	optDesktopNotification = 29
-	optProgressReport      = 30
-	optContinuationMax     = 31
-	optModeDefault         = 33
-	optMode                = 34
-	optTerminfoName        = 37
-	optResizePullBack      = 40
-	optRenderHold          = 41
+	optUserdata            = 1
+	optWritePTY            = 2
+	optBell                = 3
+	optTitleChanged        = 6
+	optSize                = 7
+	optColorScheme         = 8
+	optDeviceAttributes    = 9
+	optColorForeground     = 12
+	optColorBackground     = 13
+	optColorCursor         = 14
+	optColorPalette        = 15
+	optKittyImageLimit     = 16
+	optSelection           = 22
+	optDefaultCursorStyle  = 23
+	optDefaultCursorBlink  = 24
+	optPwdChanged          = 26
+	optClipboardWrite      = 27
+	optClipboardRead       = 39
+	optScrollbackMaxBytes  = 28
+	optDesktopNotification = 30
+	optProgressReport      = 31
+	optContinuationMax     = 32
+	optModeDefault         = 34
+	optMode                = 35
+	optTerminfoName        = 38
+	optResizePullBack      = 41
+	optRenderHold          = 42
 
 	dataCols           = 1
 	dataRows           = 2
@@ -154,6 +155,7 @@ const (
 	dataPwd            = 13
 	dataColorFg        = 18 // then the background, the cursor and the palette
 	dataColorFgDefault = 22 // the same, defaults alone
+	dataSelection      = 31
 	dataViewportActive = 32
 	dataMode           = 37
 	dataMouseShape     = 41
@@ -452,7 +454,7 @@ func (t *Terminal) ScrollToRow(row int) {
 
 // CellAt returns the cell at column x of row y of the viewport.
 func (t *Terminal) CellAt(x, y int) (GridRef, bool) {
-	ref := GridRef{size: unsafe.Sizeof(GridRef{})}
+	var ref GridRef
 	p := point{tag: 1, x: uint16(max(0, min(x, 0xFFFF))), y: uint32(max(y, 0))}
 	return ref, terminalGridRef(t.h, p, &ref) == 0
 }
@@ -543,66 +545,95 @@ func (t *Terminal) Hyperlink(ref GridRef) string {
 
 // SetSelection selects s, or nothing when s is nil.
 func (t *Terminal) SetSelection(s *Selection) {
-	t.set(21, unsafe.Pointer(s))
+	t.set(optSelection, unsafe.Pointer(s))
 }
 
 // ExtendSelection moves the selection's logical end to ref, keeping its
 // original anchor even for a reversed selection. Read a fresh snapshot:
 // grid references cannot be kept across output, scrolling or resizing.
 func (t *Terminal) ExtendSelection(ref GridRef) bool {
-	s := Selection{size: unsafe.Sizeof(Selection{})}
-	if t.get(31, unsafe.Pointer(&s)) != nil {
+	var s Selection
+	if t.get(dataSelection, unsafe.Pointer(&s)) != nil {
 		return false
 	}
 	s.end, s.rectangle = ref, false
-	return t.set(21, unsafe.Pointer(&s)) == nil
+	return t.set(optSelection, unsafe.Pointer(&s)) == nil
 }
 
 // SelectAll returns a selection of everything, scrollback included.
 func (t *Terminal) SelectAll() (Selection, bool) {
-	s := Selection{size: unsafe.Sizeof(Selection{})}
+	var s Selection
 	return s, ok(call(fnSelectAll, t.h, uintptr(unsafe.Pointer(&s))))
 }
 
 // SelectionText returns the text of the selection, with soft-wrapped lines
 // joined and trailing spaces trimmed, as Ghostty copies it.
 func (t *Terminal) SelectionText() (string, bool) {
-	var p, n uintptr
-	opts := selectionFormatOptions{size: unsafe.Sizeof(selectionFormatOptions{}), unwrap: true, trim: true}
-	if selectionFormatAlloc(t.h, 0, opts, &p, &n) != 0 {
+	var s Selection
+	if t.get(dataSelection, unsafe.Pointer(&s)) != nil {
 		return "", false
 	}
-	s := goString(p, n)
-	if p != 0 {
-		call(fnFree, 0, p, n)
-	}
-	return s, true
+	b, ok := t.format(func(f uintptr) bool {
+		unwrap := true
+		return formatterSet(f, formatterOptUnwrap, unsafe.Pointer(&unwrap)) &&
+			formatterSet(f, formatterOptSelection, unsafe.Pointer(&s))
+	})
+	return string(b), ok
 }
 
 // Text returns the text of the screen and its scrollback, with
 // soft-wrapped lines joined and trailing spaces trimmed.
 func (t *Terminal) Text() string {
-	opts := formatterOptions{size: unsafe.Sizeof(formatterOptions{}), unwrap: true, trim: true}
-	opts.extra.size = unsafe.Sizeof(opts.extra)
-	opts.extra.screen.size = unsafe.Sizeof(opts.extra.screen)
+	b, _ := t.format(func(f uintptr) bool {
+		unwrap := true
+		return formatterSet(f, formatterOptUnwrap, unsafe.Pointer(&unwrap))
+	})
+	return string(b)
+}
+
+// Formatter options and values (GhosttyFormatterOption,
+// GhosttyFormatterFormat, GhosttyFormatterExtras). A new formatter writes
+// plain text with trailing spaces trimmed.
+const (
+	formatterOptEmit      = 1
+	formatterOptUnwrap    = 2
+	formatterOptTrim      = 3
+	formatterOptSelection = 4
+	formatterOptExtras    = 5
+
+	// formatVT is text with escape sequences.
+	formatVT = 1
+
+	extraPalette = 1 << 0
+	extrasAll    = 0xFFF
+)
+
+// format formats the terminal with a formatter that set configures,
+// reporting whether it could.
+func (t *Terminal) format(set func(f uintptr) bool) ([]byte, bool) {
 	var f uintptr
-	if formatterTerminalNew(0, &f, t.h, opts) != 0 {
-		return ""
+	if !ok(call(fnFormatterTerminalNew, 0, uintptr(unsafe.Pointer(&f)), t.h)) {
+		return nil, false
 	}
 	defer call(fnFormatterFree, f)
+	if !set(f) {
+		return nil, false
+	}
 	var p, n uintptr
 	if !ok(call(fnFormatterFormatAlloc, f, 0, uintptr(unsafe.Pointer(&p)), uintptr(unsafe.Pointer(&n)))) {
-		return ""
+		return nil, false
 	}
-	s := goString(p, n)
+	b := []byte(goString(p, n))
 	if p != 0 {
 		call(fnFree, 0, p, n)
 	}
-	return s
+	return b, true
 }
 
-// formatVT is GHOSTTY_FORMATTER_FORMAT_VT: text with escape sequences.
-const formatVT = 1
+// formatterSet sets an option of a formatter to a pointer to its value.
+func formatterSet(f uintptr, opt int, value unsafe.Pointer) bool {
+	return ok(call(fnFormatterSet, f, uintptr(opt), uintptr(value)))
+}
 
 // VT returns the terminal's state as escape sequences, which restore it in
 // a terminal of the same size: the scrollback and the screen with their
@@ -611,24 +642,14 @@ const formatVT = 1
 // palette is left out, as the terminal it restores in has colors of its
 // own.
 func (t *Terminal) VT() []byte {
-	opts := formatterOptions{size: unsafe.Sizeof(formatterOptions{}), emit: formatVT}
-	x := &opts.extra
-	x.size = unsafe.Sizeof(opts.extra)
-	x.modes, x.scrollingRegion, x.tabstops, x.pwd, x.keyboard = true, true, true, true, true
-	x.screen.size = unsafe.Sizeof(opts.extra.screen)
-	x.screen.cursor, x.screen.style, x.screen.hyperlink, x.screen.protection, x.screen.kittyKeyboard, x.screen.charsets = true, true, true, true, true, true
-	var f uintptr
-	if formatterTerminalNew(0, &f, t.h, opts) != 0 {
+	b, ok := t.format(func(f uintptr) bool {
+		emit, trim, extras := int32(formatVT), false, uint32(extrasAll&^extraPalette)
+		return formatterSet(f, formatterOptEmit, unsafe.Pointer(&emit)) &&
+			formatterSet(f, formatterOptTrim, unsafe.Pointer(&trim)) &&
+			formatterSet(f, formatterOptExtras, unsafe.Pointer(&extras))
+	})
+	if !ok {
 		return nil
-	}
-	defer call(fnFormatterFree, f)
-	var p, n uintptr
-	if !ok(call(fnFormatterFormatAlloc, f, 0, uintptr(unsafe.Pointer(&p)), uintptr(unsafe.Pointer(&n)))) {
-		return nil
-	}
-	b := []byte(goString(p, n))
-	if p != 0 {
-		call(fnFree, 0, p, n)
 	}
 	return t.padRows(b)
 }
