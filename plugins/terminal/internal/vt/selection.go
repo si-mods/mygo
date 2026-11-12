@@ -9,17 +9,17 @@ const (
 	gestureDrag     = 2
 	gestureAutoTick = 3
 
-	gestureOptRef            = 0
-	gestureOptPosition       = 1
-	gestureOptRepeatDistance = 2
-	gestureOptTime           = 3
-	gestureOptRepeatInterval = 4
-	gestureOptRectangle      = 7
-	gestureOptGeometry       = 8
-	gestureOptViewport       = 9
+	gestureOptRef            = 1
+	gestureOptPosition       = 2
+	gestureOptRepeatDistance = 3
+	gestureOptTime           = 4
+	gestureOptRepeatInterval = 5
+	gestureOptRectangle      = 8
+	gestureOptGeometry       = 9
+	gestureOptViewport       = 10
 
-	gestureDataDragged    = 1
-	gestureDataAutoscroll = 2
+	gestureDataDragged    = 2
+	gestureDataAutoscroll = 3
 )
 
 // Gesture turns presses and drags of the pointer into selections as
@@ -75,7 +75,7 @@ func (g *Gesture) Free(t *Terminal) {
 }
 
 func (g *Gesture) apply(t *Terminal, ev uintptr) (Selection, bool) {
-	s := Selection{size: unsafe.Sizeof(Selection{})}
+	var s Selection
 	return s, ok(call(fnGestureEvent, g.h, t.h, ev, uintptr(unsafe.Pointer(&s))))
 }
 

@@ -29,8 +29,8 @@ func (t *Terminal) Snapshot() ([]byte, error) {
 
 // Snapshot decoder options (GhosttySnapshotDecoderOption).
 const (
-	snapshotDecoderMaxContinuation = 0
-	snapshotDecoderRetain          = 1
+	snapshotDecoderMaxContinuation = 1
+	snapshotDecoderRetain          = 2
 )
 
 // DecodeSnapshot makes a terminal of the state a snapshot holds, with the

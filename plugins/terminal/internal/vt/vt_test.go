@@ -724,3 +724,233 @@ func TestSnapshot(t *testing.T) {
 		t.Errorf("restored cursor after the sequence = %d,%d, want %d,%d", ox, oy, x, y-1)
 	}
 }
+
+// TestStyles reads every attribute of a style, and its colors of each
+// kind, from a cell (a GhosttyStyle), and again after a snapshot.
+func TestStyles(t *testing.T) {
+	loadLib(t)
+	term, _ := NewTerminal(10, 2, Effects{})
+	defer term.Free()
+	term.Write([]byte("\x1b[1;2;3;5;7;8;9;53;4:3;38;5;196;48;2;1;2;3;58;2;250;128;7mx\x1b[0;4my"))
+	want := Style{
+		FG: Color{Kind: 1, Index: 196}, BG: Color{Kind: 2, RGB: RGB{1, 2, 3}}, UnderlineColor: Color{Kind: 2, RGB: RGB{250, 128, 7}},
+		Bold: true, Italic: true, Faint: true, Blink: true, Inverse: true, Invisible: true, Strikethrough: true, Overline: true,
+		Underline: UnderlineCurly,
+	}
+	check := func(term *Terminal) {
+		t.Helper()
+		r, _ := NewRenderState()
+		defer r.Free()
+		r.Update(term)
+		r.Rows()
+		r.NextRow()
+		r.RowCells()
+		if got := r.CellStyle(0); got != want {
+			t.Errorf("style = %+v, want %+v", got, want)
+		}
+		if got := r.CellStyle(1); got != (Style{Underline: UnderlineSingle}) {
+			t.Errorf("style of y = %+v", got)
+		}
+		if got := r.CellStyle(2); got != (Style{}) {
+			t.Errorf("default style = %+v", got)
+		}
+	}
+	check(term)
+	if got, w := want.SGR(), "\x1b[0;1;2;3;4:3;5;7;8;9;53;38:5:196;48:2::1:2:3;58:2::250:128:7m"; got != w {
+		t.Errorf("SGR = %q, want %q", got, w)
+	}
+	snap, err := term.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := DecodeSnapshot(snap, Effects{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Free()
+	check(other)
+}
+
+// TestGridRefs follows a selection's grid references to their cells, and
+// extends, shows and clears it.
+func TestGridRefs(t *testing.T) {
+	loadLib(t)
+	term, _ := NewTerminal(10, 3, Effects{})
+	defer term.Free()
+	term.Write([]byte("one\r\ntwo\r\nthree\r\nfour"))
+	all, ok := term.SelectAll()
+	if !ok {
+		t.Fatal("SelectAll")
+	}
+	start, end := all.Ends()
+	if row, ok := term.ScreenRow(start); !ok || row != 0 {
+		t.Errorf("start row = %d, %v", row, ok)
+	}
+	if x, y, shown := term.ViewportPoint(end); !shown || x != 3 || y != 2 {
+		t.Errorf("end = %d,%d (shown %v)", x, y, shown)
+	}
+	if _, _, shown := term.ViewportPoint(start); shown {
+		t.Error("the start, in the scrollback, shows")
+	}
+	a, _ := term.CellAt(1, 0)
+	b, _ := term.CellAt(2, 1)
+	if x, y, _ := term.ViewportPoint(&b); x != 2 || y != 1 {
+		t.Errorf("CellAt(2, 1) = %d,%d", x, y)
+	}
+	term.SetSelection(&Selection{start: a, end: a})
+	if !term.ExtendSelection(b) {
+		t.Fatal("ExtendSelection")
+	}
+	if text, _ := term.SelectionText(); text != "wo\nthr" {
+		t.Errorf("extended selection = %q", text)
+	}
+	r, _ := NewRenderState()
+	defer r.Free()
+	r.Update(term)
+	r.Rows()
+	var rows [][2]int
+	for r.NextRow() {
+		if s, e, ok := r.RowSelection(); ok {
+			rows = append(rows, [2]int{s, e})
+		}
+	}
+	if want := [][2]int{{1, 9}, {0, 2}}; len(rows) != 2 || rows[0] != want[0] || rows[1] != want[1] {
+		t.Errorf("selected columns = %v, want %v", rows, want)
+	}
+	term.SetSelection(nil)
+	if term.ExtendSelection(b) {
+		t.Error("extended no selection")
+	}
+}
+
+// TestFormatter formats text, soft-wrapped lines joined, and escape
+// sequences that restore the screen, its modes and cursor but not the
+// palette, row by row.
+func TestFormatter(t *testing.T) {
+	loadLib(t)
+	term, _ := NewTerminal(5, 4, Effects{})
+	defer term.Free()
+	term.Write([]byte("\x1b]4;1;rgb:12/34/56\x07\x1b[?2004h\x1b[31mabcdefg\x1b[0m  \r\nx"))
+	if got := term.Text(); got != "abcdefg\nx" {
+		t.Errorf("text = %q", got)
+	}
+	vt := string(term.VT())
+	for _, want := range []string{"abcde\x1b[0m\r\n", "fg", "\x1b[?2004h", "\x1b[3;2H"} {
+		if !strings.Contains(vt, want) {
+			t.Errorf("VT %q lacks %q", vt, want)
+		}
+	}
+	if strings.Contains(vt, "\x1b]4;") {
+		t.Errorf("VT %q sets the palette", vt)
+	}
+	other, _ := NewTerminal(5, 4, Effects{})
+	defer other.Free()
+	other.Write([]byte(vt))
+	if got := other.Text(); got != "abcde\nfg\nx" {
+		t.Errorf("text replayed = %q", got)
+	}
+	if !other.Mode(ModeBracketedPaste) {
+		t.Error("bracketed paste not replayed")
+	}
+	if x, y := other.Cursor(); x != 1 || y != 2 {
+		t.Errorf("cursor replayed = %d,%d", x, y)
+	}
+}
+
+// TestEffects reads what notifications, progress reports and clipboard
+// writes carry (the callbacks' payloads), and the default cursor.
+func TestEffects(t *testing.T) {
+	loadLib(t)
+	var notes, progress, clips []string
+	term, _ := NewTerminal(10, 2, Effects{
+		Notify:   func(title, body string) { notes = append(notes, title+"|"+body) },
+		Progress: func(state, p int) { progress = append(progress, strconv.Itoa(state)+":"+strconv.Itoa(p)) },
+		Clipboard: func(text string, primary bool) bool {
+			clips = append(clips, text+"|"+strconv.FormatBool(primary))
+			return true
+		},
+	})
+	defer term.Free()
+	term.Write([]byte("\x1b]777;notify;the title;the body\x07\x1b]9;4;1;42\x07\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("copied")) + "\x07"))
+	term.Write([]byte("\x1b]52;p;" + base64.StdEncoding.EncodeToString([]byte("primary")) + "\x07"))
+	if want := "the title|the body"; len(notes) != 1 || notes[0] != want {
+		t.Errorf("notifications = %q, want %q", notes, want)
+	}
+	if want := "1:42"; len(progress) != 1 || progress[0] != want {
+		t.Errorf("progress = %q, want %q", progress, want)
+	}
+	if want := []string{"copied|false", "primary|true"}; strings.Join(clips, ",") != strings.Join(want, ",") {
+		t.Errorf("clipboard writes = %q, want %q", clips, want)
+	}
+	term.SetDefaultCursor(CursorUnderline, true)
+	term.Write([]byte("\x1b[2 q\x1b[0 q"))
+	r, _ := NewRenderState()
+	defer r.Free()
+	r.Update(term)
+	if c := r.Cursor(); c.Style != CursorUnderline || !c.Blinking {
+		t.Errorf("default cursor = %+v", c)
+	}
+}
+
+// TestEncodeText encodes the text a key types, which can differ from its
+// unshifted character, and motion once per cell.
+func TestEncodeText(t *testing.T) {
+	loadLib(t)
+	term, _ := NewTerminal(80, 24, Effects{})
+	defer term.Free()
+	k, _ := NewKeyEncoder()
+	defer k.Free()
+	k.Sync(term, false)
+	ev := KeyEvent{Action: KeyPress, Key: KeyE, Mods: ModAlt, Consumed: ModAlt, Text: "é", Unshifted: 'e'}
+	if got := string(k.Encode(ev)); got != "é" {
+		t.Errorf("é = %q", got)
+	}
+	// The Kitty keyboard protocol reporting every key with its text.
+	term.Write([]byte("\x1b[>25u"))
+	k.Sync(term, false)
+	if got := string(k.Encode(KeyEvent{Action: KeyPress, Key: KeyA, Text: "a", Unshifted: 'a'})); got != "\x1b[97;;97u" {
+		t.Errorf("a with its text = %q", got)
+	}
+	m, _ := NewMouseEncoder()
+	defer m.Free()
+	term.Write([]byte("\x1b[?1003h\x1b[?1006h"))
+	m.Sync(term, 800, 480, 10, 20, 0, 0, false)
+	if got := string(m.Encode(MouseMotion, ButtonNone, 0, 25, 45)); got != "\x1b[<35;3;3M" {
+		t.Errorf("motion = %q", got)
+	}
+	if got := m.Encode(MouseMotion, ButtonNone, 0, 28, 50); got != nil {
+		t.Errorf("motion in the same cell = %q", got)
+	}
+}
+
+// TestImage reads an image of the Kitty graphics protocol, its pixels and
+// its placement.
+func TestImage(t *testing.T) {
+	loadLib(t)
+	term, _ := NewTerminal(20, 10, Effects{})
+	defer term.Free()
+	term.SetImageLimit(1 << 20)
+	term.Resize(20, 10, 10, 20)
+	pixels := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	term.Write([]byte("\x1b[2;3H\x1b_Ga=T,f=32,s=2,v=2,i=7,p=3,c=4,r=2,q=2;" + base64.StdEncoding.EncodeToString(pixels) + "\x1b\\"))
+	img, ok := term.Image(7)
+	if !ok || img.Width != 2 || img.Height != 2 || img.Format != ImageRGBA || !bytes.Equal(img.Pixels, pixels) {
+		t.Fatalf("image = %+v, %v", img, ok)
+	}
+	if g := term.ImageGeneration(7); g == 0 || g != img.Generation {
+		t.Errorf("generation = %d, image's %d", g, img.Generation)
+	}
+	if _, ok := term.Image(8); ok || term.ImageGeneration(8) != 0 {
+		t.Error("an image that is not there")
+	}
+	var ps []Placement
+	term.Placements(func(p Placement) { ps = append(ps, p) })
+	if len(ps) != 1 {
+		t.Fatalf("placements = %+v", ps)
+	}
+	p := ps[0]
+	if p.ImageID != 7 || p.ID != 3 || p.Virtual || p.Col != 2 || p.Row != 1 || !p.Visible || p.Cols != 4 || p.Rows != 2 ||
+		p.ParamCols != 4 || p.ParamRows != 2 || p.Width != 40 || p.Height != 40 || p.SrcW != 2 || p.SrcH != 2 {
+		t.Errorf("placement = %+v", p)
+	}
+}

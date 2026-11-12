@@ -5,12 +5,11 @@ import "unsafe"
 // RGB is a GhosttyColorRgb.
 type RGB struct{ R, G, B uint8 }
 
-// styleColor is a GhosttyStyleColor: a tag and, after padding, a union of a
-// palette index and an RGB color.
+// styleColor is a GhosttyStyleColor: a tag and a union of a palette index
+// and an RGB color.
 type styleColor struct {
-	tag   int32
-	_     int32
-	value [8]byte
+	tag   uint8
+	value [3]byte
 }
 
 const (
@@ -19,13 +18,26 @@ const (
 	colorRGB     = 2
 )
 
-// style is a GhosttyStyle.
+// style is a GhosttyStyle: its flags are GhosttyStyleFlags, a bit for each
+// of bold to overline in that order, then the underline in three bits.
 type style struct {
-	size                                                                    uintptr
-	fg, bg, underlineColor                                                  styleColor
-	bold, italic, faint, blink, inverse, invisible, strikethrough, overline bool
-	underline                                                               int32
+	fg, bg, underlineColor styleColor
+	flags                  uint16
+	_                      uint16
 }
+
+const (
+	styleBold = 1 << iota
+	styleItalic
+	styleFaint
+	styleBlink
+	styleInverse
+	styleInvisible
+	styleStrikethrough
+	styleOverline
+	styleUnderlineShift = 8
+	styleUnderlineMask  = 7 << styleUnderlineShift
+)
 
 // renderCursor is a GhosttyRenderStateCursor.
 type renderCursor struct {
@@ -82,7 +94,6 @@ type modeConfig struct {
 // GridRef is a GhosttyGridRef: a cell of the terminal, valid until the
 // terminal next changes.
 type GridRef struct {
-	size uintptr
 	node uintptr
 	x, y uint16
 }
@@ -100,38 +111,8 @@ type point struct {
 // Selection is a GhosttySelection: two cells of the terminal, inclusive,
 // valid until the terminal next changes.
 type Selection struct {
-	size       uintptr
 	start, end GridRef
 	rectangle  bool
-}
-
-// selectionFormatOptions is a GhosttyTerminalSelectionFormatOptions.
-type selectionFormatOptions struct {
-	size      uintptr
-	emit      int32
-	unwrap    bool
-	trim      bool
-	selection uintptr
-}
-
-// formatterOptions is a GhosttyFormatterTerminalOptions, with its extras
-// (GhosttyFormatterTerminalExtra and GhosttyFormatterScreenExtra).
-type formatterOptions struct {
-	size      uintptr
-	emit      int32
-	unwrap    bool
-	trim      bool
-	extra     formatterExtra
-	selection uintptr
-}
-
-type formatterExtra struct {
-	size                                                     uintptr
-	palette, modes, scrollingRegion, tabstops, pwd, keyboard bool
-	screen                                                   struct {
-		size                                                          uintptr
-		cursor, style, hyperlink, protection, kittyKeyboard, charsets bool
-	}
 }
 
 // mouseEncoderSize is a GhosttyMouseEncoderSize.
@@ -160,7 +141,6 @@ type sizeReport struct {
 
 // clipboardWrite is a GhosttyClipboardWrite.
 type clipboardWrite struct {
-	size                 uintptr
 	location             int32
 	contents             uintptr
 	contentsLen          uintptr
@@ -183,7 +163,6 @@ type clipboardWriteReply struct {
 
 // clipboardRead is a GhosttyClipboardRead.
 type clipboardRead struct {
-	size                 uintptr
 	location             int32
 	mimes                uintptr
 	mimesLen             uintptr
@@ -222,13 +201,11 @@ type mimeReader struct {
 
 // desktopNotification is a GhosttyTerminalDesktopNotification.
 type desktopNotification struct {
-	size        uintptr
 	title, body cString
 }
 
 // progressReport is a GhosttyTerminalProgressReport.
 type progressReport struct {
-	size     uintptr
 	state    int32
 	progress int8
 }
@@ -240,6 +217,11 @@ type deviceAttributes struct {
 	numFeatures                        uintptr
 	deviceType, firmware, romCartridge uint16
 	unitID                             uint32
+}
+
+// codepointBuffer is a GhosttyCodepointBuffer.
+type codepointBuffer struct {
+	ptr, cap, len uintptr
 }
 
 // RowID identifies a row across render state updates (a
@@ -263,7 +245,6 @@ func layouts() map[string]layout {
 		pt  point
 		sel Selection
 		sbu selectionBuffer
-		sfo selectionFormatOptions
 		mes mouseEncoderSize
 		cw  clipboardWrite
 		cc  clipboardContent
@@ -274,16 +255,13 @@ func layouts() map[string]layout {
 		dn  desktopNotification
 		pr  progressReport
 		da  deviceAttributes
-		fo  formatterOptions
 	)
 	return map[string]layout{
 		"GhosttyColorRgb":   {unsafe.Sizeof(RGB{}), map[string]uintptr{"r": 0, "g": 1, "b": 2}},
 		"GhosttyStyleColor": {unsafe.Sizeof(sc), map[string]uintptr{"tag": 0, "value": unsafe.Offsetof(sc.value)}},
 		"GhosttyStyle": {unsafe.Sizeof(s), map[string]uintptr{
 			"fg_color": unsafe.Offsetof(s.fg), "bg_color": unsafe.Offsetof(s.bg), "underline_color": unsafe.Offsetof(s.underlineColor),
-			"bold": unsafe.Offsetof(s.bold), "italic": unsafe.Offsetof(s.italic), "faint": unsafe.Offsetof(s.faint),
-			"blink": unsafe.Offsetof(s.blink), "inverse": unsafe.Offsetof(s.inverse), "invisible": unsafe.Offsetof(s.invisible),
-			"strikethrough": unsafe.Offsetof(s.strikethrough), "overline": unsafe.Offsetof(s.overline), "underline": unsafe.Offsetof(s.underline),
+			"flags": unsafe.Offsetof(s.flags),
 		}},
 		"GhosttyRenderStateCursor": {unsafe.Sizeof(c), map[string]uintptr{
 			"viewport_has_value": unsafe.Offsetof(c.viewportHasValue), "viewport_x": unsafe.Offsetof(c.viewportX),
@@ -305,9 +283,6 @@ func layouts() map[string]layout {
 		"GhosttyPointCoordinate":         {8, map[string]uintptr{"x": unsafe.Offsetof(pt.x) - unsafe.Offsetof(pt.x), "y": unsafe.Offsetof(pt.y) - unsafe.Offsetof(pt.x)}},
 		"GhosttySelection":               {unsafe.Sizeof(sel), map[string]uintptr{"start": unsafe.Offsetof(sel.start), "end": unsafe.Offsetof(sel.end), "rectangle": unsafe.Offsetof(sel.rectangle)}},
 		"GhosttySelectionBuffer":         {unsafe.Sizeof(sbu), map[string]uintptr{"ptr": 0, "cap": unsafe.Offsetof(sbu.cap), "len": unsafe.Offsetof(sbu.len)}},
-		"GhosttyTerminalSelectionFormatOptions": {unsafe.Sizeof(sfo), map[string]uintptr{
-			"emit": unsafe.Offsetof(sfo.emit), "unwrap": unsafe.Offsetof(sfo.unwrap), "trim": unsafe.Offsetof(sfo.trim), "selection": unsafe.Offsetof(sfo.selection),
-		}},
 		"GhosttyMouseEncoderSize": {unsafe.Sizeof(mes), map[string]uintptr{
 			"screen_width": unsafe.Offsetof(mes.screenWidth), "screen_height": unsafe.Offsetof(mes.screenHeight),
 			"cell_width": unsafe.Offsetof(mes.cellWidth), "cell_height": unsafe.Offsetof(mes.cellHeight),
@@ -347,11 +322,6 @@ func layouts() map[string]layout {
 		"GhosttyTerminalProgressReport":      {unsafe.Sizeof(pr), map[string]uintptr{"state": unsafe.Offsetof(pr.state), "progress": unsafe.Offsetof(pr.progress)}},
 		"GhosttyDeviceAttributes":            {unsafe.Sizeof(da), map[string]uintptr{"primary": 0, "secondary": unsafe.Offsetof(da.deviceType), "tertiary": unsafe.Offsetof(da.unitID)}},
 		"GhosttyRenderStateRowId":            {unsafe.Sizeof(RowID{}), map[string]uintptr{"bits": 0}},
-		"GhosttyFormatterTerminalOptions": {unsafe.Sizeof(fo), map[string]uintptr{
-			"emit": unsafe.Offsetof(fo.emit), "unwrap": unsafe.Offsetof(fo.unwrap), "trim": unsafe.Offsetof(fo.trim),
-			"extra": unsafe.Offsetof(fo.extra), "selection": unsafe.Offsetof(fo.selection),
-		}},
-		"GhosttyFormatterTerminalExtra": {unsafe.Sizeof(fo.extra), map[string]uintptr{"keyboard": unsafe.Offsetof(fo.extra.keyboard), "screen": unsafe.Offsetof(fo.extra.screen)}},
-		"GhosttyFormatterScreenExtra":   {unsafe.Sizeof(fo.extra.screen), map[string]uintptr{"charsets": unsafe.Offsetof(fo.extra.screen.charsets)}},
+		"GhosttyCodepointBuffer":             {unsafe.Sizeof(codepointBuffer{}), map[string]uintptr{"ptr": 0, "cap": unsafe.Offsetof(codepointBuffer{}.cap), "len": unsafe.Offsetof(codepointBuffer{}.len)}},
 	}
 }

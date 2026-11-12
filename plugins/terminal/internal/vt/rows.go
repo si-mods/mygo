@@ -42,9 +42,9 @@ func (t *Terminal) ModifyOtherKeys() bool {
 		return false
 	}
 	defer e.Free()
-	call(fnKeyEncoderSetoptFromTerminal, e.h, t.h)
+	call(fnKeyEncoderSetFromTerminal, e.h, t.h)
 	var kitty uint8
-	call(fnKeyEncoderSetopt, e.h, 5, uintptr(unsafe.Pointer(&kitty)))
+	call(fnKeyEncoderSet, e.h, keyOptKittyFlags, uintptr(unsafe.Pointer(&kitty)))
 	b := e.Encode(KeyEvent{Action: KeyPress, Key: KeyP, Mods: ModCtrl, Text: "p", Unshifted: 'p'})
 	return bytes.HasPrefix(b, []byte("\x1b[27;"))
 }

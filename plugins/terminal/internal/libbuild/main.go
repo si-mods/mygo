@@ -34,8 +34,9 @@ import (
 	"strings"
 )
 
-// commit is the commit of Ghostty this package binds.
-const commit = "dc8f59943ce94b75ffadc45cc4f36eca6a7ed2ae"
+// commit is the commit of Ghostty this package binds: the tag vt-1.0.1,
+// libghostty-vt 1.0.1.
+const commit = "108cacb17ed8990840cd14abfce43d8ed8503ca1"
 
 var targets = []struct {
 	goos, goarch, zig string

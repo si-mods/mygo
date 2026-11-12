@@ -272,11 +272,17 @@ func (e *KeyEncoder) Free() {
 	*e = KeyEncoder{}
 }
 
+// Key encoder options (GhosttyKeyEncoderOption).
+const (
+	keyOptKittyFlags       = 6
+	keyOptMacOSOptionAsAlt = 7
+)
+
 // Sync takes the terminal's modes, and whether Option is Alt on macOS.
 func (e *KeyEncoder) Sync(t *Terminal, optionAsAlt bool) {
-	call(fnKeyEncoderSetoptFromTerminal, e.h, t.h)
+	call(fnKeyEncoderSetFromTerminal, e.h, t.h)
 	v := int32(b2u(optionAsAlt))
-	call(fnKeyEncoderSetopt, e.h, 6, uintptr(unsafe.Pointer(&v)))
+	call(fnKeyEncoderSet, e.h, keyOptMacOSOptionAsAlt, uintptr(unsafe.Pointer(&v)))
 }
 
 // Encode returns the bytes the program reads for k, valid until the next
@@ -294,22 +300,20 @@ func (e *KeyEncoder) Encode(k KeyEvent) []byte {
 	text := []byte(k.Text)
 	if len(text) > 0 {
 		pin.Pin(&text[0])
-		call(fnKeyEventSetUTF8, e.ev, uintptr(unsafe.Pointer(&text[0])), uintptr(len(text)))
-	} else {
-		call(fnKeyEventSetUTF8, e.ev, 0, 0)
 	}
+	keyEventSetUTF8(e.ev, cBytes(text))
 	var n uintptr
 	r := call(fnKeyEncoderEncode, e.h, e.ev, uintptr(unsafe.Pointer(&e.buf[0])), uintptr(len(e.buf)), uintptr(unsafe.Pointer(&n)))
 	if Result(int32(r)) == OutOfSpace && n > 0 {
 		big := make([]byte, n)
 		r = call(fnKeyEncoderEncode, e.h, e.ev, uintptr(unsafe.Pointer(&big[0])), n, uintptr(unsafe.Pointer(&n)))
-		call(fnKeyEventSetUTF8, e.ev, 0, 0)
+		keyEventSetUTF8(e.ev, cString{})
 		if !ok(r) {
 			return nil
 		}
 		return big[:n]
 	}
-	call(fnKeyEventSetUTF8, e.ev, 0, 0)
+	keyEventSetUTF8(e.ev, cString{})
 	if !ok(r) || n == 0 {
 		return nil
 	}
@@ -357,9 +361,16 @@ func NewMouseEncoder() (*MouseEncoder, error) {
 	}
 	// Motion is reported once per cell, as xterm does.
 	v := true
-	call(fnMouseEncoderSetopt, m.h, 4, uintptr(unsafe.Pointer(&v)))
+	call(fnMouseEncoderSet, m.h, mouseOptTrackLastCell, uintptr(unsafe.Pointer(&v)))
 	return m, nil
 }
+
+// Mouse encoder options (GhosttyMouseEncoderOption).
+const (
+	mouseOptSize             = 3
+	mouseOptAnyButtonPressed = 4
+	mouseOptTrackLastCell    = 5
+)
 
 // Free frees the encoder.
 func (m *MouseEncoder) Free() {
@@ -375,14 +386,14 @@ func (m *MouseEncoder) Free() {
 // Sync takes the terminal's mouse modes, the geometry of the screen in
 // pixels, and whether a button is held.
 func (m *MouseEncoder) Sync(t *Terminal, width, height, cellWidth, cellHeight, padLeft, padTop int, pressed bool) {
-	call(fnMouseEncoderSetoptFromTerminal, m.h, t.h)
+	call(fnMouseEncoderSetFromTerminal, m.h, t.h)
 	s := mouseEncoderSize{
 		size: unsafe.Sizeof(mouseEncoderSize{}), screenWidth: uint32(max(width, 1)), screenHeight: uint32(max(height, 1)),
 		cellWidth: uint32(max(cellWidth, 1)), cellHeight: uint32(max(cellHeight, 1)),
 		paddingTop: uint32(max(padTop, 0)), paddingLeft: uint32(max(padLeft, 0)),
 	}
-	call(fnMouseEncoderSetopt, m.h, 2, uintptr(unsafe.Pointer(&s)))
-	call(fnMouseEncoderSetopt, m.h, 3, uintptr(unsafe.Pointer(&pressed)))
+	call(fnMouseEncoderSet, m.h, mouseOptSize, uintptr(unsafe.Pointer(&s)))
+	call(fnMouseEncoderSet, m.h, mouseOptAnyButtonPressed, uintptr(unsafe.Pointer(&pressed)))
 }
 
 // Encode returns the bytes the program reads for a pointer event at x, y

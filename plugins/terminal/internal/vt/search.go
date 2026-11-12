@@ -7,18 +7,16 @@ import (
 
 // Search options and data (GhosttySearchOption, GhosttySearchData).
 const (
-	searchOptNeedle       = 0
-	searchOptSelectNext   = 1
-	searchOptSelectPrev   = 2
-	searchOptSelectScroll = 3
+	searchOptNeedle       = 1
+	searchOptSelectScroll = 4
 
 	searchScrollNone = 1
 
-	searchDataStatus          = 0
-	searchDataTotal           = 2
-	searchDataSelectedIndex   = 3
-	searchDataSelectedMatch   = 4
-	searchDataViewportMatches = 6
+	searchDataStatus          = 1
+	searchDataTotal           = 3
+	searchDataSelectedIndex   = 4
+	searchDataSelectedMatch   = 5
+	searchDataViewportMatches = 7
 )
 
 // SearchStatus is how far a search went (GhosttySearchStatus).
@@ -110,18 +108,18 @@ func (s *Search) Selected() (int, bool) {
 
 // SelectedMatch returns the selected match.
 func (s *Search) SelectedMatch() (Selection, bool) {
-	m := Selection{size: unsafe.Sizeof(Selection{})}
+	var m Selection
 	return m, ok(call(fnSearchGet, s.h, searchDataSelectedMatch, uintptr(unsafe.Pointer(&m))))
 }
 
 // Select selects the next match toward older output, or toward newer
 // output when back, wrapping around. It reports whether there was a match.
 func (s *Search) Select(back bool) bool {
-	opt := uintptr(searchOptSelectNext)
+	fn := fnSearchSelectNext
 	if back {
-		opt = searchOptSelectPrev
+		fn = fnSearchSelectPrev
 	}
-	return ok(call(fnSearchSet, s.h, opt, 0))
+	return ok(call(fn, s.h))
 }
 
 // ViewportMatches returns the matches on the pages the viewport shows, as
@@ -129,9 +127,6 @@ func (s *Search) Select(back bool) bool {
 func (s *Search) ViewportMatches(buf []Selection) []Selection {
 	for {
 		buf = buf[:cap(buf)]
-		for i := range buf {
-			buf[i].size = unsafe.Sizeof(Selection{})
-		}
 		b := selectionBuffer{cap: uintptr(len(buf))}
 		if len(buf) > 0 {
 			b.ptr = &buf[0]

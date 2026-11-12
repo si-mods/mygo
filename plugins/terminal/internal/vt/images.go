@@ -18,8 +18,7 @@ const (
 	imageWidth      = 3
 	imageHeight     = 4
 	imageFormat     = 5
-	imageData       = 7
-	imageDataLen    = 8
+	imagePixels     = 7
 	imageGeneration = 9
 
 	placementImageID = 1
@@ -161,8 +160,8 @@ func (t *Terminal) ImageGeneration(id uint32) uint64 {
 		return 0
 	}
 	var gen uint64
-	var p uintptr
-	if !ok(call(fnKittyImageGet, img, imageData, uintptr(unsafe.Pointer(&p)))) || p == 0 {
+	var p cString
+	if !ok(call(fnKittyImageGet, img, imagePixels, uintptr(unsafe.Pointer(&p)))) || p.ptr == 0 {
 		return 0
 	}
 	call(fnKittyImageGet, img, imageGeneration, uintptr(unsafe.Pointer(&gen)))
@@ -186,23 +185,21 @@ func (t *Terminal) Image(id uint32) (Image, bool) {
 	}
 	var w, h uint32
 	var format int32
-	var p, n uintptr
+	var p cString
 	var gen uint64
 	call(fnKittyImageGet, img, imageWidth, uintptr(unsafe.Pointer(&w)))
 	call(fnKittyImageGet, img, imageHeight, uintptr(unsafe.Pointer(&h)))
 	call(fnKittyImageGet, img, imageFormat, uintptr(unsafe.Pointer(&format)))
 	call(fnKittyImageGet, img, imageGeneration, uintptr(unsafe.Pointer(&gen)))
-	if !ok(call(fnKittyImageGet, img, imageData, uintptr(unsafe.Pointer(&p)))) || p == 0 {
+	if !ok(call(fnKittyImageGet, img, imagePixels, uintptr(unsafe.Pointer(&p)))) || p.ptr == 0 {
 		return Image{}, false
 	}
-	call(fnKittyImageGet, img, imageDataLen, uintptr(unsafe.Pointer(&n)))
-	pixels := make([]byte, n)
-	copy(pixels, unsafe.Slice((*byte)(mem(p)), n))
+	pixels := []byte(goString(p.ptr, p.len))
 	return Image{ID: id, Width: int(w), Height: int(h), Format: ImageFormat(format), Pixels: pixels, Generation: gen}, true
 }
 
 // sysDecodePNG is GHOSTTY_SYS_OPT_DECODE_PNG.
-const sysDecodePNG = 1
+const sysDecodePNG = 2
 
 // sysImage is a GhosttySysImage: a PNG decoded, its pixels RGBA in memory
 // of the library's allocator.
