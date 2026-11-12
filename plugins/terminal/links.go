@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -87,6 +88,207 @@ func pathAt(text []rune, cols []int, col int) (path string, x0, x1 int) {
 		}
 	}
 	return "", 0, 0
+}
+
+// maxLinkRows is how many rows above and below the hovered one a path may
+// wrap over.
+const maxLinkRows = 8
+
+// linkRow is a row of the viewport as pathAtRows reads it: its text and the
+// column of each rune, whether it soft-wraps into the next row, whether its
+// text reaches the last column, and the width of the terminal.
+type linkRow struct {
+	text       []rune
+	cols       []int
+	wrap, full bool
+	width      int
+}
+
+// goesOn reports whether the row's text may go on in the next: a terminal
+// wraps it, or a program wrapped it at the right edge.
+func (r linkRow) goesOn() bool { return r.wrap || r.full }
+
+// pathAtRows is pathAt over consecutive rows of the viewport, for a path
+// that wraps; at is the hovered row in rows and col its column. It returns
+// the columns the path covers on that row only. Only the word under the
+// pointer decides which rows are tried (wordRows), so prose costs one pathAt.
+// The longest run of rows is tried first, then shorter ones down to the
+// hovered row alone, until isLink takes the path: a program's wrap is a
+// guess, and text that ends at the last column may be followed by an
+// unrelated row. A terminal's soft wrap is certain, so a run never cuts one.
+func pathAtRows(rows []linkRow, at, col int, isLink func(string) bool) (path string, x0, x1 int) {
+	lo, hi := wordRows(rows, at, col)
+	tried := map[string]bool{}
+	for n := hi - lo; n >= 0; n-- {
+		for a := lo; a <= at && a+n <= hi; a++ {
+			b := a + n
+			if b < at || a > lo && rows[a-1].wrap || b < hi && rows[b].wrap {
+				continue
+			}
+			var p string
+			if n == 0 {
+				p, x0, x1 = pathAt(rows[at].text, rows[at].cols, col)
+			} else {
+				p, x0, x1 = pathOverRows(rows[a:a+n+1], at-a, col)
+			}
+			if p != "" && !tried[p] {
+				if isLink(p) {
+					return p, x0, x1
+				}
+				tried[p] = true
+			}
+		}
+	}
+	return "", 0, 0
+}
+
+// runeAt returns the index of the rune of r at column col, or -1; a wide
+// rune also holds the column after it.
+func runeAt(r linkRow, col int) int {
+	for j, c := range r.cols {
+		if c <= col && (j+1 == len(r.cols) || r.cols[j+1] > col) && col-c <= 1 {
+			return j
+		}
+	}
+	return -1
+}
+
+// startOf returns the index of the first rune of rows[i] that is text: the
+// row's first, or after its indent when a program wrapped the row above.
+func startOf(rows []linkRow, i int) int {
+	if i == 0 || rows[i-1].wrap {
+		return 0
+	}
+	n := 0
+	for n < len(rows[i].text) && rows[i].text[n] == ' ' {
+		n++
+	}
+	return n
+}
+
+// oneWord reports whether the text of rows[i] is a single word.
+func oneWord(rows []linkRow, i int) bool {
+	t := rows[i].text
+	st := startOf(rows, i)
+	return st < len(t) && !slices.Contains(t[st:], ' ')
+}
+
+// wordRows returns the first and last row the word at col of row at may
+// continue over: up while it starts the text of a row the row above goes on
+// into, down while it ends a row that goes on, over rows that are one word.
+// Anywhere else, the hovered row alone.
+func wordRows(rows []linkRow, at, col int) (lo, hi int) {
+	lo, hi = at, at
+	r := rows[at]
+	j := runeAt(r, col)
+	if j < 0 || r.text[j] == ' ' {
+		return
+	}
+	s, e := j, j
+	for s > 0 && r.text[s-1] != ' ' {
+		s--
+	}
+	for e+1 < len(r.text) && r.text[e+1] != ' ' {
+		e++
+	}
+	if s == startOf(rows, at) {
+		for lo > 0 && at-lo < maxLinkRows && rows[lo-1].goesOn() {
+			if lo--; !oneWord(rows, lo) {
+				break
+			}
+		}
+	}
+	if e == len(r.text)-1 {
+		for hi < len(rows)-1 && hi-at < maxLinkRows && rows[hi].goesOn() {
+			if hi++; !oneWord(rows, hi) {
+				break
+			}
+		}
+	}
+	return
+}
+
+// wrapped reports whether prev, a row that reaches the last column, goes
+// on in a row whose text after its indent is next: a program breaks only a
+// word too long for a row, so a rule or prose that ends at the edge is no
+// wrap. The word is the run of non-spaces on both sides of the break; a
+// run of one rune, as ---, is a rule.
+func wrapped(prev linkRow, next []rune, cols []int) bool {
+	isText := func(r rune) bool {
+		return r > ' ' && r < 0x80 || unicode.IsLetter(r) || unicode.IsDigit(r)
+	}
+	n := len(prev.text)
+	if n == 0 || len(next) == 0 || !isText(prev.text[n-1]) || !isText(next[0]) {
+		return false
+	}
+	t := n - 1
+	for t > 0 && prev.text[t-1] != ' ' {
+		t--
+	}
+	h := 0
+	for h+1 < len(next) && next[h+1] != ' ' {
+		h++
+	}
+	if rule(prev.text[t:]) || rule(next[:h+1]) {
+		return false
+	}
+	w1, indent := prev.width-prev.cols[t], cols[0]
+	w2 := cols[h] + 1 - indent
+	return w1+w2 > prev.width-indent
+}
+
+// rule reports whether word is two or more of one rune.
+func rule(word []rune) bool {
+	return len(word) > 1 && !slices.ContainsFunc(word, func(r rune) bool { return r != word[0] })
+}
+
+// pathOverRows runs pathAt on the rows joined into one line, and returns
+// the part of the path on row at.
+func pathOverRows(rows []linkRow, at, col int) (path string, x0, x1 int) {
+	var line []rune
+	var row, colOf []int // the row and the column of each rune of line
+	hovered := -1
+	for i, r := range rows {
+		text, cols := r.text, r.cols
+		skip := 0
+		if i > 0 && !rows[i-1].wrap {
+			skip = startOf(rows, i)
+			text, cols = text[skip:], cols[skip:]
+			if !wrapped(rows[i-1], text, cols) {
+				return "", 0, 0
+			}
+		}
+		if i == at {
+			if hovered = runeAt(r, col); hovered < skip {
+				return "", 0, 0 // in the indent, or no rune
+			}
+			hovered = len(line) + hovered - skip
+		}
+		for j, c := range text {
+			line, row, colOf = append(line, c), append(row, i), append(colOf, cols[j])
+		}
+	}
+	ident := make([]int, len(line))
+	for i := range ident {
+		ident[i] = i
+	}
+	path, a, b := pathAt(line, ident, hovered)
+	if path == "" {
+		return "", 0, 0
+	}
+	x0, x1 = -1, 0
+	for i := a; i < b; i++ {
+		if row[i] == at {
+			if x0 < 0 {
+				x0 = colOf[i]
+			}
+			x1 = colOf[i] + 1
+		}
+	}
+	if x0 < 0 {
+		return "", 0, 0
+	}
+	return path, x0, x1
 }
 
 // quotedAt returns the bytes of s, a up to b, of a quoted run that opens at

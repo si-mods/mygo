@@ -3580,3 +3580,40 @@ func TestCommandClickAutolinkProseToNoOne(t *testing.T) {
 		t.Errorf("sent %q, want the press and the release of a click off the link", got)
 	}
 }
+
+// TestCommandClickWrappedPath: a path that wraps onto the next row, by the
+// terminal or by the program, opens whole from either row.
+func TestCommandClickWrappedPath(t *testing.T) {
+	loadLib(t)
+	const path = "src/internal/aaaaaaaaaaaa/bbbbbbbbbbbb/cccccccccccc/dddddddddddd.go"
+	for _, c := range []struct{ name, feed string }{
+		{"terminal wrap", "see " + path + " ok"},
+		// The program fills the row (48 columns), then indents the rest.
+		{"program wrap", "see " + path[:44] + "\r\n  " + path[44:] + " ok"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var opened []string
+			term, err := New(Options{Conn: newPipe(), OpenLink: func(link string) bool {
+				opened = append(opened, link)
+				return true
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer term.Close()
+			term.Feed([]byte(c.feed))
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 400, 200)
+			tt.Frame()
+			if term.v.cols != 48 {
+				t.Fatalf("%d columns, the test wants 48", term.v.cols)
+			}
+			for _, cell := range [][2]int{{10, 0}, {10, 1}} {
+				x, y := cellCenter(term, cell[0], cell[1])
+				tt.ClickAtWith(ui.Cmd, x, y)
+			}
+			if want := []string{path, path}; !slices.Equal(opened, want) {
+				t.Errorf("opened %q, want %q", opened, want)
+			}
+		})
+	}
+}

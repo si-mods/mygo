@@ -1351,11 +1351,32 @@ func (v *view) linkAt(col, row int) (link string, path bool, at linkSpan) {
 		return url, false, linkSpan{row, x0, x1}
 	}
 	if t.opts.OpenLink != nil {
-		if p, x0, x1 := pathAt(text, cols, col); p != "" && t.isLink(p) {
+		// A path may wrap onto the rows around this one.
+		rows, at := []linkRow{v.linkRowAt(row)}, 0
+		for y := row - 1; y >= 0 && at < maxLinkRows; y-- {
+			r := v.linkRowAt(y)
+			if !r.goesOn() {
+				break
+			}
+			rows, at = append([]linkRow{r}, rows...), at+1
+		}
+		for y := row + 1; y < v.rows && len(rows)-1-at < maxLinkRows && rows[len(rows)-1].goesOn(); y++ {
+			rows = append(rows, v.linkRowAt(y))
+		}
+		if p, x0, x1 := pathAtRows(rows, at, col, t.isLink); p != "" {
 			return p, true, linkSpan{row, x0, x1}
 		}
 	}
 	return "", false, linkSpan{}
+}
+
+// linkRowAt is row y of the viewport for pathAtRows; t.mu is held.
+func (v *view) linkRowAt(y int) linkRow {
+	text, cols := v.t.term.RowText(y)
+	_, wrap := v.t.term.Row(y)
+	n := len(text)
+	// A wide rune at the edge leaves its spacer cell out of the text.
+	return linkRow{text, cols, wrap, n > 0 && cols[n-1] >= v.cols-2 && text[n-1] != ' ', v.cols}
 }
 
 // autolink reads a hyperlink whose cells print its URL, as a Markdown
