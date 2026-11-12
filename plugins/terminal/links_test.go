@@ -210,6 +210,7 @@ func mkRow(s string, wrap, full bool) linkRow {
 			x++
 		}
 	}
+	r.width = x
 	return r
 }
 
@@ -274,6 +275,30 @@ func TestPathAtRows(t *testing.T) {
 			mkRow("see src/aaaa", false, false),
 			mkRow("bbbb/cccc.go", false, false),
 		}, 1, 3, any, "bbbb/cccc.go", 0, 12, -1},
+		{"soft-wrapped path is one candidate", []linkRow{
+			mkRow("see /aaaa/bbbb/cccc", true, true),
+			mkRow("dddd/eeee/ffff", true, true),
+			mkRow("gggg/hhhh.txt ok", false, false),
+		}, 1, 5, func(string) bool { return false }, "", 0, 0, 1},
+		{"program-wrapped path, only the two rows taken", []linkRow{
+			mkRow("open /aaaa/bbbb/cccc", false, true),
+			mkRow("  dddd/eeee/ffff", false, true),
+			mkRow("  gggg/hhhh.txt ok", false, false),
+		}, 1, 5, func(p string) bool { return p == "/aaaa/bbbb/ccccdddd/eeee/ffff" }, "/aaaa/bbbb/ccccdddd/eeee/ffff", 2, 16, 2},
+		{"wide rune at the end of a row", []linkRow{
+			mkRow("see /aaaa/bbbb/ccc文", false, true),
+			mkRow("  件.txt more", false, false),
+		}, 1, 3, any, "/aaaa/bbbb/ccc文件.txt", 2, 8, -1},
+		{"a word away from the edges costs one candidate", []linkRow{
+			mkRow("aaaa aaaa aaaa aaaa", true, true),
+			mkRow("bb src/a.go bb bb bb", true, true),
+			mkRow("cccc cccc cccc cccc", true, true),
+		}, 1, 5, any, "src/a.go", 3, 11, 1},
+		{"prose in a soft-wrapped block", []linkRow{
+			mkRow("aaaa aaaa aaaa aaaa", true, true),
+			mkRow("bbbb bbbb bbbb bbbb", true, true),
+			mkRow("cccc cccc cccc cccc", true, true),
+		}, 1, 6, any, "", 0, 0, 0},
 		{"prose before the path", []linkRow{
 			mkRow(`some words C:\a\b`, false, true),
 			mkRow(`  c\d.png`, false, false),
@@ -307,6 +332,24 @@ func TestPathAtRowsSingle(t *testing.T) {
 			if p != q || x0 != y0 || x1 != y1 {
 				t.Errorf("%q col %d: pathAtRows = %q %d..%d, pathAt = %q %d..%d", s, col, q, y0, y1, p, x0, x1)
 			}
+		}
+	}
+}
+
+// TestPathAtRowsRules: a rule made of one ASCII rune that fills a row is
+// neither a path nor joined to the file name that starts the next row.
+func TestPathAtRowsRules(t *testing.T) {
+	for _, r := range "-=_.+#~" {
+		rows := []linkRow{
+			mkRow(strings.Repeat(string(r), 48), false, true),
+			mkRow("foo.txt is here", false, false),
+		}
+		isLink := func(string) bool { return true }
+		if p, x0, x1 := pathAtRows(rows, 1, 2, isLink); p != "foo.txt" || x0 != 0 || x1 != 7 {
+			t.Errorf("%c: foo.txt = %q %d..%d, want foo.txt 0..7", r, p, x0, x1)
+		}
+		if p, _, _ := pathAtRows(rows, 0, 5, isLink); p != "" {
+			t.Errorf("%c: the rule is the link %q", r, p)
 		}
 	}
 }

@@ -1353,8 +1353,12 @@ func (v *view) linkAt(col, row int) (link string, path bool, at linkSpan) {
 	if t.opts.OpenLink != nil {
 		// A path may wrap onto the rows around this one.
 		rows, at := []linkRow{v.linkRowAt(row)}, 0
-		for y := row - 1; y >= 0 && at < maxLinkRows && v.linkRowAt(y).goesOn(); y-- {
-			rows, at = append([]linkRow{v.linkRowAt(y)}, rows...), at+1
+		for y := row - 1; y >= 0 && at < maxLinkRows; y-- {
+			r := v.linkRowAt(y)
+			if !r.goesOn() {
+				break
+			}
+			rows, at = append([]linkRow{r}, rows...), at+1
 		}
 		for y := row + 1; y < v.rows && len(rows)-1-at < maxLinkRows && rows[len(rows)-1].goesOn(); y++ {
 			rows = append(rows, v.linkRowAt(y))
@@ -1371,7 +1375,8 @@ func (v *view) linkRowAt(y int) linkRow {
 	text, cols := v.t.term.RowText(y)
 	_, wrap := v.t.term.Row(y)
 	n := len(text)
-	return linkRow{text, cols, wrap, n > 0 && cols[n-1] == v.cols-1 && text[n-1] != ' '}
+	// A wide rune at the edge leaves its spacer cell out of the text.
+	return linkRow{text, cols, wrap, n > 0 && cols[n-1] >= v.cols-2 && text[n-1] != ' ', v.cols}
 }
 
 // autolink reads a hyperlink whose cells print its URL, as a Markdown
