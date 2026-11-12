@@ -26,7 +26,7 @@ var pathToken = regexp.MustCompile(`[^\s"'<>` + "`" + proseDelimiters + `]+`)
 // main.go:12 in grep's main.go:12:code, build/app.js in --out=build/app.js
 // or /usr/bin in PATH=/usr/bin:/bin. A drive path, as C:\src\a.go, starts at
 // a word boundary: abc:/foo holds no drive.
-var pathInToken = regexp.MustCompile(`(?:\b[A-Za-z]:[\\/][^\s:]+|(?:~|\.{1,2})?/[^\s:]+|[\p{L}\p{N}_.@+-]+(?:/[\p{L}\p{N}_.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\p{L}\p{N}_@+-][\p{L}\p{N}_.@+-]*\.[\p{L}\p{N}_]+(?::\d+(?::\d+)?)?`)
+var pathInToken = regexp.MustCompile(`(?:\b[A-Za-z]:[\\/][^\s:;]+|(?:~|\.{1,2})?/[^\s:]+|[\p{L}\p{N}_.@+-]+(?:/[\p{L}\p{N}_.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\p{L}\p{N}_@+-][\p{L}\p{N}_.@+-]*\.[\p{L}\p{N}_]+(?::\d+(?::\d+)?)?`)
 
 // drivePath finds the drive a Windows path starts with, as C:\ or D:/. Only
 // a path with one takes \ as a separator.

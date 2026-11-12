@@ -173,6 +173,9 @@ func TestPathAtDrive(t *testing.T) {
 		{`C:\a\b.png, then`, `a\b`, `C:\a\b.png`, `C:\a\b.png`},
 		{`（C:\a\b.png）`, `a\b`, `C:\a\b.png`, `C:\a\b.png`},
 		{`cd C:\Users\ now`, `Users`, `C:\Users\`, `C:\Users\`},
+		{`PATH=C:\bin;D:\bin`, `C:`, `C:\bin`, `C:\bin`},
+		{`PATH=C:\bin;D:\bin`, `D:`, `D:\bin`, `D:\bin`},
+		{`Option C:/D`, `C:`, `C:/D`, `C:/D`}, // accepted: a drive path as far as it looks
 		// Not drive paths: the drive letter must start the path, and \ is no
 		// separator elsewhere.
 		{`abc:/foo`, `foo`, `/foo`, `/foo`},
