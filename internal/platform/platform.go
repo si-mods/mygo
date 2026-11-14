@@ -418,8 +418,10 @@ type WindowOptions struct {
 	// one (macOS 26's Liquid Glass): nil for none.
 	VibrancyTint *Color
 	// CornerRadius rounds a frameless window's corners, in DIPs: its
-	// content and material are cut to them (macOS), or the system rounds
-	// it with its own corners (Windows 11).
+	// content and material are cut to them (macOS), the system rounds
+	// it with its own corners (Windows 11), or its native UI's frames or
+	// its X window are cut to them (Linux X11, a window with a hidden
+	// title bar too; see CornerSurface).
 	CornerRadius int
 	Opacity      float64
 	Parent       Window
