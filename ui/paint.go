@@ -91,16 +91,35 @@ func (rt *engine) paint(root *node, w, h, scale float32) {
 	uses := rt.text.TransientUses()
 	rt.partTransient = 0
 	p.cull = !rt.inkStale && !rt.noCull
+	// A window whose content rounds its corners has the frame cut to
+	// them, transparent outside (platform.CornerSurface).
+	corners := rt.windowCorners()
+	if corners > 0 {
+		p.pushClip(Rect{0, 0, w, h}, [4]float32{corners, corners, corners, corners})
+	}
 	p.element(root)
 	p.cull = false
 	if rt.insp.open {
 		rt.insp.paintHighlight(rt, p, h)
 	}
 	rt.paintDrag(p, w, h)
+	if corners > 0 {
+		p.popClip()
+	}
 	rt.under, rt.holes = p.under[:0], p.holes[:0] // kept for the next frame's
 	rt.partsBase = sceneData(s)
 	rt.atlases = atlasGenerations(s)
 	rt.transient = rt.text.TransientUses()-uses > rt.partTransient
+}
+
+// windowCorners returns the radius, in the content's DIPs, of the corners
+// the content rounds its window's by, 0 for none.
+func (rt *engine) windowCorners() float32 {
+	c, ok := rt.host.(interface{ windowCorners() float32 })
+	if !ok {
+		return 0
+	}
+	return c.windowCorners() / rt.zoomFactor()
 }
 
 // atlasGenerations returns the generations of the atlases s draws glyphs

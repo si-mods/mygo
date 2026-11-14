@@ -71,6 +71,9 @@ type window struct {
 	// title bar itself, with an empty title bar: it draws the shadow and
 	// the border, and resizes the window at its edges (see useCSD).
 	csd bool
+	// alphaCorners tells that the window has an alpha channel for its
+	// content to cut its frames to its rounded corners (blendCorners).
+	alphaCorners bool
 
 	// flyout is how a flyout (WindowOptions.Flyout) was placed last, at
 	// flyoutSize, once placed is set. grabbed tells that a focusable one
@@ -92,7 +95,8 @@ type window struct {
 	// beneath it (SetIgnoreMouseEvents), and inputRegion through all of
 	// it but its rectangles, in DIPs from the top-left corner of the
 	// content (SetInputRegion), nil for none; ignoreMouse wins. allocWatched
-	// tells that the window's size-allocate shapes it again.
+	// tells that the window's size-allocate shapes it again, its input or
+	// its corners (applyCornerShape).
 	ignoreMouse  bool
 	inputRegion  []platform.Rect
 	allocWatched bool
@@ -230,6 +234,7 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 		}
 		gtkWidgetSetAppPaintable(w.win, true)
 	}
+	w.blendCorners()
 	if p, ok := o.Parent.(*window); ok && p != nil {
 		gtkWindowSetTransientFor(w.win, p.win)
 		if o.Modal {
@@ -286,6 +291,9 @@ func (b *Backend) NewWindow(o *platform.WindowOptions, h platform.WindowHandler)
 	connect(w.win, "key-release-event", cbMenuKey, data)
 	connect(w.win, "realize", cbWindowRealize, data)
 	connectAfter(w.win, "map", cbWindowMap, data)
+	if w.roundsCorners() {
+		w.watchAllocation()
+	}
 
 	b.windows[w.id] = w
 	if w.web != 0 {
@@ -893,9 +901,8 @@ func (w *window) applyInputShape(draw bool) {
 	if w.closed {
 		return
 	}
-	if w.shapesInput() && !w.allocWatched {
-		w.allocWatched = true
-		connectAfter(w.win, "size-allocate", cbWindowAllocated, ptr(w.id))
+	if w.shapesInput() {
+		w.watchAllocation()
 	}
 	win := gtkWidgetGetWindow(w.win)
 	if win == 0 {
@@ -915,6 +922,15 @@ func (w *window) applyInputShape(draw bool) {
 	}
 	if draw {
 		gtkWidgetQueueDraw(w.win)
+	}
+}
+
+// watchAllocation has the window's size-allocate, after GTK's, shape the
+// window again (cbWindowAllocated).
+func (w *window) watchAllocation() {
+	if !w.allocWatched {
+		w.allocWatched = true
+		connectAfter(w.win, "size-allocate", cbWindowAllocated, ptr(w.id))
 	}
 }
 
@@ -1626,7 +1642,7 @@ var (
 	cbDragData, cbDragDrop, cbPrintFinished, cbPrintFailed, cbPermission        ptr
 	cbMotion, cbControlsAllocated, cbDecorationLayout, cbActivationResize       ptr
 	cbCloseLater, cbHideLater, cbPlayingAudio, cbCaptureState                   ptr
-	cbWindowRealize, cbWindowMap, cbWindowAllocated                             ptr
+	cbWindowRealize, cbWindowMap, cbWindowAllocated, cbCompositedChanged        ptr
 )
 
 func field[T any](p ptr, offset uintptr) T {
@@ -1648,14 +1664,34 @@ func initWindowCallbacks() {
 		}
 	})
 	cbWindowRealize = purego.NewCallback(func(widget, data ptr) {
-		if w := b().window(data); w != nil && w.shapesInput() {
+		w := b().window(data)
+		if w == nil {
+			return
+		}
+		if w.shapesInput() {
 			w.applyInputShape(true)
 		}
+		w.applyCornerShape()
 	})
 	cbWindowMap = cbWindowRealize
 	cbWindowAllocated = purego.NewCallback(func(widget, allocation, data ptr) {
-		if w := b().window(data); w != nil && w.shapesInput() {
+		w := b().window(data)
+		if w == nil {
+			return
+		}
+		if w.shapesInput() {
 			w.applyInputShape(false)
+		}
+		w.applyCornerShape()
+	})
+	// The compositor went away or came back: the windows whose content
+	// cut their frames to their corners have them cut by their shape
+	// until it is back (corners.go).
+	cbCompositedChanged = purego.NewCallback(func(screen, data ptr) {
+		for _, w := range b().windows {
+			if w.alphaCorners && !w.closed {
+				w.cornersChanged()
+			}
 		}
 	})
 	cbCloseLater = purego.NewCallback(func(data ptr) int32 {
@@ -1803,6 +1839,9 @@ func initWindowCallbacks() {
 		// GdkEventWindowState: changed_mask at 20, new_window_state at 24.
 		changed, state := field[uint32](event, 20), field[uint32](event, 24)
 		w.state = state
+		if changed&(stateMaximized|stateFullscreen|stateTiled) != 0 {
+			w.cornersChanged() // filling its edges, or no longer
+		}
 		if changed&stateFocused != 0 && state&stateFocused != 0 && w.activationResize != nil && w.resizeIdle == 0 {
 			// G_PRIORITY_DEFAULT_IDLE: after GTK took the configure event
 			// of the activation.

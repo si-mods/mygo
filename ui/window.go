@@ -948,6 +948,19 @@ func (h *windowHost) openURL(u string, done func(error)) {
 	}
 }
 
+// windowCorners returns the radius, in the window's DIPs, of the corners
+// the content rounds the window's by (platform.CornerSurface), 0 for none.
+func (h *windowHost) windowCorners() float32 {
+	if h.conn == nil {
+		return 0
+	}
+	s, ok := h.conn.Surface.(platform.CornerSurface)
+	if !ok {
+		return 0
+	}
+	return float32(s.WindowCorners())
+}
+
 // nativeGlass reports whether the surface draws the system's glass.
 func (h *windowHost) nativeGlass() bool {
 	s, ok := h.conn.Surface.(platform.GlassSurface)

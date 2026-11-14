@@ -299,11 +299,12 @@ func (s *surface) newArea(gl bool) {
 	s.area = newSurfaceArea(gl)
 	if gl {
 		gtkGLAreaSetRequiredVersion(s.area, 3, 3)
-		// Only transparent windows show what is behind them. With an alpha
-		// channel GTK keeps the area in a texture it blends, rather than in
-		// a renderbuffer it copies, which took a small window 50 MB more of
+		// Only transparent windows, and those whose content rounds their
+		// corners, show what is behind them. With an alpha channel GTK
+		// keeps the area in a texture it blends, rather than in a
+		// renderbuffer it copies, which took a small window 50 MB more of
 		// the GPU's memory, and an animation half as much CPU again.
-		gtkGLAreaSetHasAlpha(s.area, s.w.opts.Transparent)
+		gtkGLAreaSetHasAlpha(s.area, s.w.opts.Transparent || s.w.alphaCorners)
 		// GTK keeps the area's last frame as it paints the window, and
 		// renders it again only as the content asks (queueDraw): rendering
 		// on every paint, its default, built a frame for each one a web view

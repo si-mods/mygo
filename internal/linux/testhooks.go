@@ -831,6 +831,64 @@ func TestDecorations(handle uintptr) Decorations {
 	return d
 }
 
+// TestWindowShape returns the rectangles, x, y, width and height in its
+// pixels, of a window's bounding shape on the X server, which shows the
+// window inside them alone: the whole window when it has no shape. ok
+// is false without an X server or SHAPE.
+func TestWindowShape(handle uintptr) (rects [][4]int, ok bool) {
+	w := windowByHandle(handle)
+	if w == nil || !loadX11() {
+		return nil, false
+	}
+	var xid func(win ptr) uint64
+	var get func(dpy ptr, win uint64, kind int32, count, ordering *int32) ptr
+	var free func(p ptr) int32
+	ext, err := open("libXext.so.6")
+	x, xerr := open("libX11.so.6")
+	if err != nil || xerr != nil || !bind(libGDK, &xid, "gdk_x11_window_get_xid") ||
+		!bind(ext, &get, "XShapeGetRectangles") || !bind(x, &free, "XFree") {
+		return nil, false
+	}
+	win := gtkWidgetGetWindow(w.win)
+	if win == 0 {
+		return nil, false
+	}
+	// Xlib sends GDK's requests, on the same display, ahead of the query.
+	var count, ordering int32
+	const shapeBounding = 0
+	list := get(x11.xdisplay(gdkDisplayGetDefault()), xid(win), shapeBounding, &count, &ordering)
+	if list == 0 {
+		return nil, count == 0
+	}
+	defer free(list)
+	// XRectangle: short x, y; unsigned short width, height.
+	for _, r := range unsafe.Slice((*[4]uint16)(*(*unsafe.Pointer)(unsafe.Pointer(&list))), count) {
+		rects = append(rects, [4]int{int(int16(r[0])), int(int16(r[1])), int(r[2]), int(r[3])})
+	}
+	return rects, true
+}
+
+// TestWindowCorners reports whether a window has an alpha channel for its
+// content to cut its frames to its rounded corners, and the radius the
+// content cuts them to now, 0 for none (corners.go).
+func TestWindowCorners(handle uintptr) (alpha bool, radius float64) {
+	w := windowByHandle(handle)
+	if w == nil {
+		return false, 0
+	}
+	if w.surface != nil {
+		radius = w.surface.WindowCorners()
+	}
+	return w.alphaCorners, radius
+}
+
+// TestWindowManager reports an X11 window manager, which maximizes
+// windows and puts them in full screen: Xvfb alone has none.
+func TestWindowManager(handle uintptr) bool {
+	w := windowByHandle(handle)
+	return w != nil && theBackend.windowManager(w.win)
+}
+
 // pageMenu returns the context menu WebKitGTK shows over a page of ours, a
 // GtkMenu in a popup window attached to the web view, or 0.
 func pageMenu() ptr {

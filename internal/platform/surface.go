@@ -101,6 +101,15 @@ type GlassPlacement struct {
 	Tint *Color
 }
 
+// CornerSurface is a Surface whose window has the content round its
+// corners: its frames, transparent outside them, show what is behind
+// the window there, as a compositor blends it (Linux X11).
+type CornerSurface interface {
+	// WindowCorners returns the radius of the corners in the window's
+	// DIPs, 0 for square ones. A SurfaceResize follows its changes.
+	WindowCorners() float64
+}
+
 // GlassSurface is a Surface that draws the system's glass under its
 // content, as macOS 26's NSGlassEffectView does, where the content leaves a
 // hole.

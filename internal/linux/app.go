@@ -23,6 +23,9 @@ type Backend struct {
 	running bool
 
 	windows map[int]*window
+	// compositeWatched tells that the default screen's composited-changed
+	// reaches the windows whose content rounds their corners (corners.go).
+	compositeWatched bool
 	// flyouts are the flyouts that show on Wayland, in the order they
 	// showed: each popup's parent is the one before or a toplevel.
 	flyouts   []*window
