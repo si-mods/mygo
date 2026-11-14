@@ -168,7 +168,12 @@ type WindowOptions struct {
 	// Transparent: its BackgroundColor fills its content, inside the
 	// corners. Windows 11 rounds a
 	// frameless window given one with the corners of its own windows,
-	// whatever the radius; Linux does not round it.
+	// whatever the radius. On Linux X11, the window, frameless or with a
+	// hidden title bar, has them too, and keeps square ones while
+	// maximized, tiled or in full screen: native UI made while a compositor
+	// runs cuts its frames to them, with smooth edges, and without one the
+	// X window is cut to them, with hard edges, as a page's always is. A
+	// Transparent window is not cut. Wayland does not round it.
 	CornerRadius int
 	// Opacity of the window between 0 and 1 (default 1).
 	Opacity float64
