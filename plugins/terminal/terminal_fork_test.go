@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -63,5 +64,67 @@ func TestProgress(t *testing.T) {
 	want := [][2]int{{1, 40}, {2, 70}, {3, -1}, {0, -1}}
 	if !slices.Equal(got, want) {
 		t.Errorf("progress = %v, want %v", got, want)
+	}
+}
+
+// TestCommandClickDirs: a file path printed as text is a link only where
+// Options.LinkPath takes it, so that prose (w/, and/or) is none; without
+// it, every path but a directory, one that ends in a slash, :line or not.
+// A URL that ends in a slash is the URL, clicked in its path.
+func TestCommandClickDirs(t *testing.T) {
+	loadLib(t)
+	row := "ls docs/ w/ ~/ ../ src/app/ docs/:12 w/:3 and/or https://x.org/a/ ok"
+	words := []string{"docs/", "w/", "~/", "../", "src/app/", "docs/:12", "w/:3", "and/or", "x.org/a/"}
+	for _, c := range []struct {
+		name  string
+		paths []string // what LinkPath takes; nil: no LinkPath
+		want  []string
+	}{
+		{"LinkPath", []string{"docs/", "~/", "../", "src/app/", "docs/:12"}, []string{"docs/", "~/", "../", "src/app/", "docs/:12", "https://x.org/a/"}},
+		{"no LinkPath", nil, []string{"and/or", "https://x.org/a/"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var opened, asked []string
+			opts := Options{Conn: newPipe(), OpenLink: func(link string) bool {
+				opened = append(opened, link)
+				return true
+			}}
+			if c.paths != nil {
+				opts.LinkPath = func(path string) bool {
+					asked = append(asked, path)
+					return slices.Contains(c.paths, path)
+				}
+			}
+			term, err := New(opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer term.Close()
+			term.Feed([]byte(row))
+			tt := ui.NewTester(func(c *ui.Context) { View(c, term).Fill().AutoFocus() }, 1000, 200)
+			tt.Frame()
+			for _, word := range words {
+				col := strings.Index(row, " "+word+" ") + 2
+				if word == "x.org/a/" {
+					col = strings.Index(row, word) + 1
+				}
+				x, y := cellCenter(term, col, 0)
+				tt.ClickAtWith(ui.Cmd, x, y)
+			}
+			if !slices.Equal(opened, c.want) {
+				t.Errorf("opened %q, want %q", opened, c.want)
+			}
+			if c.paths != nil && !slices.Contains(asked, "and/or") {
+				t.Errorf("LinkPath was not asked of and/or: %q", asked)
+			}
+			// Hovered with Command, w/ is no link: nothing underlined.
+			x, y := cellCenter(term, strings.Index(row, " w/ ")+1, 0)
+			tt.Move(x, y)
+			tt.HoldModifiers(ui.Cmd)
+			if h := term.v.hover; h.on() {
+				t.Errorf("w/ hovered as a link: %+v", h)
+			}
+			tt.HoldModifiers(0)
+		})
 	}
 }

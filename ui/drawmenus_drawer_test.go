@@ -13,13 +13,13 @@ func TestDrawMenusDrawerOnlyWhenUsed(t *testing.T) {
 	if tt.rt.drawsMenus() {
 		t.Error("menus draw with the switch never on")
 	}
-	linked := menusInWindow.contextMenu != nil
+	linked := menusInWindow.beginMenu != nil
 	b := &drawApp{draw: true}
 	tt = coreNewTester(b.view, 400, 300)
 	if !tt.rt.drawsMenus() {
 		t.Error("SetDrawMenus(true) did not draw menus")
 	}
-	if !linked && menusInWindow.contextMenu == nil {
+	if !linked && menusInWindow.beginMenu == nil {
 		t.Error("SetDrawMenus(true) linked nothing")
 	}
 	c := &drawApp{}

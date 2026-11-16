@@ -5,7 +5,8 @@
 `ContextMenu` gives an element a menu of the system's, which opens where
 the element is right-clicked (Control-clicked on macOS), and below it when
 the menu key or Shift+F10 is pressed while it or one inside it has the
-focus. The function builds the items when the menu opens, and runs again in
+focus, or, in a list, while the list has the focus and its row is chosen.
+The function builds the items when the menu opens, and runs again in
 the frame after one was chosen, where its `Chosen` reports it:
 
 ```go
@@ -159,6 +160,19 @@ test passes with either.
 button](menu-button.md#drawn-in-the-window) so, below the button, and takes
 the same function: a row's right-click and its ⋯ button can share one
 menu, drawn alike.
+
+`PopoverMenuOptions` style the menu as `PopoverMenuButtonOptions` style a
+menu button's: `Panel` the panel of the menu and of each submenu, after the
+theme's look, and `Item` the row of each item. A right-click menu then
+unfolds as the app's ⋯ menus do:
+
+```go
+text.PopoverMenu(app.messageMenu, ui.PopoverMenuOptions{
+	Panel: func(panel ui.Element) {
+		panel.Background(app.menuColor).Radius(12)
+	},
+})
+```
 
 ### Richer items
 
