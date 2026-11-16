@@ -158,6 +158,11 @@ is. `MenuKeepsSelection` turns this off: the menu opens on the row clicked,
 whose builder knows its row, and the choice stays. A list with `Selected`
 alone never chooses on a right-click.
 
+The menu key and Shift+F10 open the context menu of the row chosen, below
+the row, while the list has the focus: the outermost element with a
+`ContextMenu` in the row, or the list's own when no row is chosen or the
+row has none.
+
 ```go
 app.files.Selection = &app.chosen
 app.files.MenuKeepsSelection = true // the menu acts on the row clicked alone
@@ -199,6 +204,26 @@ ui.List(c, &app.list, len(app.files), func(i int) {
 })
 ```
 
+`RowClicked` reports a single click the same way, for rows that act on one,
+as a file list opening a file or a sidebar its page, with no button inside
+the row taking the click: the row takes it, so its `Label` names what takes
+the click, for typing its first letters, screen readers and `Tester.Click`
+alike. It reports each click of the primary button without modifiers, on the
+row already chosen too, where `Changed` reports nothing new. The keys moving
+the choice report none, nor does a Shift- or Cmd-click extending it. A double
+click reports its first click with `RowClicked` and its second with
+`RowDoubleClicked`, as the systems' lists do. Assistive technology pressing
+the row reports it to the first element of the row asking, and in a list
+that does not choose its rows, asking makes the row take the click.
+
+```go
+ui.List(c, &app.sidebar, len(app.pages), func(i int) {
+	if ui.Text(c, app.pages[i].Title).Padding(6, 12).FillWidth().RowClicked() {
+		app.show(i)
+	}
+})
+```
+
 Rows that draw their own hover and press, as a chat list's, ask the row
 built with `Rows` rather than an element of their own: `ListRow`'s
 `Hovered`, `Pressed` and `PointerPosition` report the row's, as the
@@ -234,8 +259,9 @@ In a list that chooses no rows, `Pressed` makes the row take the press.
 `ui.End` of the list, `ScrollIntoView(row)` scrolls as little as shows it,
 and `ScrollToEnd` scrolls to the end, rows not built yet included: the list
 scrolls as the frame is laid out, to where the row is once measured.
-`Visible` returns the first and last rows in view and `AtEnd` whether the
-end shows, to load more as the list nears the end of what was loaded.
+`Visible` returns the first and last rows in view in the last frame and
+`AtEnd` whether the end showed, for what the view shows, as a button to jump
+to the latest message.
 
 A chat:
 
@@ -253,6 +279,41 @@ ui.List(c, &app.chat, len(app.messages), func(i int) {
 	message(c, app.messages[i])
 }).Grow(1).Justify(ui.End)
 ```
+
+## Loading more
+
+A list paging in a long collection, from a database or the network, as the
+user nears the end of what was loaded, loads the next page in
+`EndReached`, rather than reading `Visible` as it builds: the list calls it
+once a frame is laid out in which the user's scrolling (the wheel, a
+touchpad, the scroll bar, the keys, a drag) brought the rows in view within
+`NearEnd` rows of the end (0 for the last row alone), with the last row in
+view. Start the load there, off the UI thread: the frame goes on with the
+rows it has, and those loaded show in the frames after.
+
+```go
+app.list.Key = func(i int) any { return app.chats[i].ID }
+app.list.NearEnd = 20
+app.list.EndReached = func(last int) {
+	if app.more && !app.loading {
+		app.loading = true
+		go app.loadPage(len(app.chats)) // appends the page on the UI thread
+	}
+}
+ui.List(c, &app.list, len(app.chats), func(i int) {
+	chatRow(c, app.chats[i])
+}).Grow(1)
+```
+
+It is called as the rows in view come near the end, not in every frame while
+they stay there. Once they left it, or the rows changed in number, as when a
+page was added, the user's next scroll near the end calls it again: a page
+arriving does not call it by itself, so a list never loads page after page
+on its own. Only the user's scrolling calls it: `ScrollTo`,
+`ScrollIntoView` and `ScrollToEnd` (a notification opening a message far
+down, say), the list showing first, being resized or built at another
+height, and rows sorted again do not. A list whose first page does not fill
+it cannot be scrolled, so load a first page taller than the list.
 
 ## Reordering
 
