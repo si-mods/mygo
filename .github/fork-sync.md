@@ -20,7 +20,7 @@ and is superseded by this one. It was not merged into `main`.
 | Compare `origin/main...upstream/main` before the merge | 50 fork-only, 281 upstream-only |
 | Upstream range | `659a325e..31bf65e6` |
 | Merge commit | `e66ba756` |
-| Pull request | opened from `sync-upstream-20261116` |
+| Pull request | [#43](https://github.com/si-mods/mygo/pull/43) (`sync-upstream-20261116`) |
 
 Upstream in that range includes PopoverMenu Panel and Item options
 ([#1889](https://github.com/egoist/mygo/pull/1889), [#1742](https://github.com/egoist/mygo/pull/1742)),
