@@ -94,6 +94,34 @@ func TestRichTextCaretBlinks(t *testing.T) {
 	}
 }
 
+// The caret before a paragraph laid out right to left shows inside the
+// box, as in a text area: on its right edge, the clip would cut it away.
+func TestRichTextCaretShowsAtTheRight(t *testing.T) {
+	doc := NewDocument(NewText("שלום"))
+	doc.SetSelection(0, 0)
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Padding(20).Children(func() {
+			EditorBase(c, doc).Width(200).Height(60).AutoFocus()
+		})
+	}, 260, 120)
+	tt.Frame() // the focus, which the first frame gives
+	on := bytes.Clone(tt.Image().Pix)
+	tt.Advance(530 * time.Millisecond)
+	off := tt.Image()
+	blinked := -1
+	for i := range on {
+		if on[i] != off.Pix[i] {
+			blinked = max(blinked, (i%off.Stride)/4)
+		}
+	}
+	if blinked < 0 {
+		t.Fatal("no caret blinks")
+	}
+	if blinked >= 220 || blinked < 217 {
+		t.Errorf("the caret blinks at column %d, not at the right of the editor (20 to 220)", blinked)
+	}
+}
+
 func TestRichTextTyping(t *testing.T) {
 	doc := NewDocument(Text{})
 	tt, changed := richTester(t, doc)
@@ -280,6 +308,26 @@ func TestRichTextInlineShortcuts(t *testing.T) {
 	typeRunes(tt, "a **big** and `x` then")
 	if got := runsOf(doc.Text()); got != "a |*big*| and |`x`| then" {
 		t.Fatalf("runs %q", got)
+	}
+}
+
+// TestRichTextInlineShortcutAtTheEnd checks that a mark closed at the end
+// of the text leaves the end as it was: a list the next line's "- " makes
+// starts plain, not in the format of the marks.
+func TestRichTextInlineShortcutAtTheEnd(t *testing.T) {
+	for _, c := range []struct{ typed, want string }{
+		{"see **Belem** today", "see |*Belem*| today\na"},
+		{"see **Belem**", "see |*Belem*|\na"},
+		{"see _Belem_", "see |_Belem_|\na"},
+	} {
+		doc := NewDocument(Text{})
+		tt, _ := richTester(t, doc)
+		typeRunes(tt, c.typed)
+		tt.Key(0, ui.KeyEnter)
+		typeRunes(tt, "- a")
+		if got := runsOf(doc.Text()); got != c.want {
+			t.Errorf("after %q: runs %q, want %q", c.typed, got, c.want)
+		}
 	}
 }
 
@@ -479,6 +527,42 @@ func TestRichTextReplaceCRLF(t *testing.T) {
 	}
 	if n := doc.Text().ParagraphCount(); n != 4 {
 		t.Fatalf("%d paragraphs, want 4", n)
+	}
+}
+
+// TestRichTextKeyboardMovesSelection checks that an on-screen keyboard's
+// cursor (Gboard's space bar swipe, iOS's trackpad) moves the selection,
+// and that typing then goes where it put the caret.
+func TestRichTextKeyboardMovesSelection(t *testing.T) {
+	doc := NewDocument(Text{})
+	tt, _ := richTester(t, doc)
+	typeRunes(tt, "hello world")
+	tt.Key(0, ui.KeyHome)
+	for range 5 {
+		tt.Key(ui.Shift, ui.KeyRight)
+	}
+	set, ok := any(doc.shownIn.Value()).(ui.TextInputSelectionSetter)
+	if !ok {
+		t.Fatal("the editor's selection can't be moved by a keyboard")
+	}
+	set.SetTextSelection(ui.TextInputRange{Start: 8, End: 8})
+	tt.Frame()
+	if a, c := doc.Selection(); a != 8 || c != 8 {
+		t.Fatalf("the keyboard put the caret at 8, selection %d–%d", a, c)
+	}
+	tt.Type("X")
+	if got := doc.Text().String(); got != "hello woXrld" {
+		t.Fatalf("typed %q", got)
+	}
+	// A composition goes in where it was, then the caret moves.
+	tt.Compose("yz", 2)
+	set.SetTextSelection(ui.TextInputRange{Start: 2, End: 4})
+	tt.Frame()
+	if got := doc.Text().String(); got != "hello woXyzrld" {
+		t.Fatalf("composition left %q", got)
+	}
+	if a, c := doc.Selection(); a != 2 || c != 4 {
+		t.Fatalf("selection %d–%d, want 2–4", a, c)
 	}
 }
 
@@ -850,9 +934,9 @@ func TestRichTextLinkOpensSafely(t *testing.T) {
 	))
 	tt, _ := richTester(t, doc)
 	for y := float32(2); y < 80; y += 6 { // apart, so that no click is a double click
-		tt.Move(10, y)
+		tt.Move(16, y)
 		if tt.Cursor() == ui.CursorPointer {
-			tt.ClickAt(10, y)
+			tt.ClickAt(16, y)
 		}
 	}
 	got := tt.OpenedURLs()
@@ -870,8 +954,8 @@ func TestRichTextLinkCanceledPress(t *testing.T) {
 	tt, _ := richTester(t, doc)
 	var x, y float32
 	for y = 2; y < 40; y += 2 {
-		if tt.Move(10, y); tt.Cursor() == ui.CursorPointer {
-			x = 10
+		if tt.Move(16, y); tt.Cursor() == ui.CursorPointer {
+			x = 16
 			break
 		}
 	}
@@ -1501,5 +1585,29 @@ func TestTallEditorNewLook(t *testing.T) {
 	}
 	if far == 0 || v.laid > 300 {
 		t.Fatalf("scrolled down the text, %d paragraphs there laid out, %d in all", far, v.laid)
+	}
+}
+
+// TestRichTextKeyboardSelectionForgetsColumn checks that Up and Down after
+// an on-screen keyboard moved the caret go from where it put it, not from
+// the column a vertical move remembered before.
+func TestRichTextKeyboardSelectionForgetsColumn(t *testing.T) {
+	doc := NewDocument(NewText("aaaaaa\naaaaaa\naaaaaa"))
+	tt, _ := richTester(t, doc)
+	doc.SetSelection(0, 0)
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	if a, c := doc.Selection(); a != 7 || c != 7 {
+		t.Fatalf("Down from 0 = (%d, %d), want (7, 7)", a, c)
+	}
+	set, ok := any(doc.shownIn.Value()).(ui.TextInputSelectionSetter)
+	if !ok {
+		t.Fatal("the editor's selection can't be moved by a keyboard")
+	}
+	set.SetTextSelection(ui.TextInputRange{Start: 12, End: 12})
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	if a, c := doc.Selection(); a != 19 || c != 19 {
+		t.Fatalf("Down after the keyboard put the caret at 12 = (%d, %d), want (19, 19)", a, c)
 	}
 }

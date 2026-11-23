@@ -91,6 +91,22 @@ func TestPathAt(t *testing.T) {
 		{"《/tmp/a.png〉", 3, "/tmp/a.png"},
 		{"a/b.png）。", 2, "a/b.png"},
 		{"./x.go:12”。", 2, "./x.go:12"},
+		// Windows paths, as a whole wherever the pointer is on them.
+		{`  ⎿  Read D:\dev\carrel\internal\desktop\links.go`, 30, `D:\dev\carrel\internal\desktop\links.go`},
+		{`  ⎿  Read D:\dev\carrel\internal\desktop\links.go`, 13, `D:\dev\carrel\internal\desktop\links.go`},
+		{`D:/dev/carrel/main.go:12:3: undefined: x`, 4, `D:/dev/carrel/main.go:12:3`},
+		{`error at D:\dev\app\main.go(12,5): bad`, 20, `D:\dev\app\main.go:12:5`},
+		{`copied \\server\share\report.pdf`, 12, `\\server\share\report.pdf`},
+		{`out: C:\Users\me\a.txt.`, 9, `C:\Users\me\a.txt`},
+		{`C:/Users/me/.codex/images/exec-1.png`, 0, `C:/Users/me/.codex/images/exec-1.png`},
+		{`C:/Users/me/.codex/images/exec-1.png`, 20, `C:/Users/me/.codex/images/exec-1.png`},
+		{`time 12:30:45 ok`, 7, ""},
+		{`copied \\server\share\reports`, 12, `\\server\share\reports`},
+		// A backslash elsewhere is an escape, not a separator.
+		{`echo hello\nworld`, 8, ""},
+		{`printf %s\t%s`, 9, ""},
+		{`grep \d+ file`, 6, ""},
+		{`\section intro`, 3, ""},
 	} {
 		text := []rune(c.row)
 		cols := make([]int, len(text))
@@ -140,6 +156,7 @@ func TestIsDir(t *testing.T) {
 	for path, want := range map[string]bool{
 		"docs/": true, "~/": true, "docs/:12": true, "w/:3:4": true, "/a/b/": true,
 		`C:\Users\`: true, `C:\Users\:3`: true, `C:/x/`: true, `C:\a.txt`: false, `a\b\`: false,
+		`\\server\share\`: true, `\\server\share\a.txt`: false,
 		"docs": false, "a/b": false, "main.go:12": false, "a.go:1:2": false,
 	} {
 		if got := isDir(path); got != want {
@@ -350,6 +367,25 @@ func TestPathAtRowsRules(t *testing.T) {
 		}
 		if p, _, _ := pathAtRows(rows, 0, 5, isLink); p != "" {
 			t.Errorf("%c: the rule is the link %q", r, p)
+		}
+	}
+}
+
+// A Windows path is a link as a whole, not its last name: the span runs from
+// its drive to its end, wherever the pointer is on it.
+func TestPathAtWindowsSpan(t *testing.T) {
+	row := `  ⎿  Read D:\dev\carrel\main.go (12 lines)`
+	path := `D:\dev\carrel\main.go`
+	text := []rune(row)
+	cols := make([]int, len(text))
+	for i := range cols {
+		cols[i] = i
+	}
+	start := len([]rune(row[:strings.Index(row, path)]))
+	end := start + len([]rune(path))
+	for _, col := range []int{start, start + 3, end - 1} {
+		if got, x0, x1 := pathAt(text, cols, col); got != path || x0 != start || x1 != end {
+			t.Errorf("pathAt(%d) = %q %d..%d, want %q %d..%d", col, got, x0, x1, path, start, end)
 		}
 	}
 }

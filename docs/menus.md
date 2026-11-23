@@ -53,8 +53,19 @@ A `MenuItem` has:
   macOS puts that column after the menu's longest label (and subtitle,
   where that follows it), and draws the badges in a monospaced-digit font,
   so a measure keeps its width as its digits change. The column moves when
-  a label, a badge or the visibility of an item changes. Other platforms
-  show the badge after the label and subtitle;
+  a label, a badge or the visibility of an item changes. A menu whose items
+  keep it open and whose badges all have a background and a right (or
+  unset) alignment is the exception: each badge sits at its own row's
+  trailing edge, and the menu is as wide as its widest row's label and
+  badge side by side rather than the widest label plus the widest badge. A
+  text badge, or an alignment of left or center, keeps the shared column
+  and the menu uses the sum. `BadgeShape` draws
+  a background behind the badge: `BadgeShapeSquare` on any macOS item, and
+  `BadgeShapeRounded` or `BadgeShapePill` on `KeepOpen` items (other items
+  show a square for any shape). `BadgeColor` (a CSS color) is the
+  background and `BadgeTextColor` the text color, with or without a
+  background. Other platforms show the badge after the label and subtitle,
+  and ignore the shape and colors;
 - `KeepOpen`, which keeps the menu open when the item is chosen on macOS.
   MyGo draws the item itself, with its label, badge and check mark, in a
   view that handles the click: the item's menu and the menu above it stay
@@ -120,7 +131,8 @@ the state the app gave them. An item the app disables stays disabled.
 ### Changing items
 
 Change items of a menu in use with their methods, so that the native menu
-follows: `SetLabel`, `SetBadge`, `SetBadgeAlign`, `SetEnabled`, `SetVisible`,
+follows: `SetLabel`, `SetBadge`, `SetBadgeAlign`, `SetBadgeShape`,
+`SetBadgeColor`, `SetBadgeTextColor`, `SetEnabled`, `SetVisible`,
 `SetChecked`, `SetAccelerator`, `SetSubtitle` and `SetIcon`:
 
 ```go
@@ -492,6 +504,13 @@ taskbar's overflow, at the pointer. To show a menu only on right-click while kee
 primary clicks available, set the menu in `OnRightClick`, call
 `PopUpMenu`, then clear it with `SetMenu(nil)` when the call returns.
 
+`Tray.Bounds` is where the icon is on screen. On macOS it is the status
+item's frame; on Linux it is always empty, as panels never say where
+their icons are; on Windows it is empty for an icon the user keeps in
+the notification area's overflow while that flyout is closed. An empty
+`Bounds` does not mean the icon is gone: when Explorer restarts, MyGo adds
+every icon again, so an app never needs to rebuild its tray.
+
 A tray icon does not keep the app running: the app quits when its last
 window closes ([Quitting](app.md#quitting)). To close a window to the
 tray, hide it instead, which keeps the window and the app. A quit, as the
@@ -546,10 +565,10 @@ Modifiers:
 
 | Modifier | Key |
 |---|---|
-| `CmdOrCtrl` (`CommandOrControl`) | Command on macOS, Control elsewhere |
-| `Cmd` (`Command`), `Super`, `Meta`, `Win` | Command on macOS, the Windows or Super key elsewhere |
+| `CmdOrCtrl` (`CommandOrControl`) | Command on macOS and iOS, Control elsewhere |
+| `Cmd` (`Command`), `Super`, `Meta`, `Win` | Command on macOS and iOS, the Windows or Super key elsewhere |
 | `Ctrl` (`Control`) | Control |
-| `Alt` (`Option`, `AltGr`) | Alt, or Option on macOS |
+| `Alt` (`Option`, `AltGr`) | Alt, or Option on macOS and iOS |
 | `Shift` | Shift |
 
 Keys:
