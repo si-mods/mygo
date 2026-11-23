@@ -5,6 +5,135 @@ product document: `docs/` is published on the website, and a page added
 there is picked up by the docs nav. Nothing here was sent to egoist/mygo.
 The candidates at the end are an assessment only.
 
+## 2026-11-23
+
+Sync of `upstream/main` into a fresh branch from current fork `main`.
+No open pull requests were on the fork. si-mods/mygo is still a fork of
+egoist/mygo, and both default branches are still `main`.
+
+| | |
+| --- | --- |
+| Fork tip started from | `5895deae` — round undecorated windows' corners on X11 ([#42](https://github.com/si-mods/mygo/pull/42)) |
+| Upstream tip merged | `a0eaaaaf` — pass the inherited environment to process.execve ([egoist/mygo#2222](https://github.com/egoist/mygo/pull/2222)) |
+| Merge base | `31bf65e6` — the tip the last merged sync ([#43](https://github.com/si-mods/mygo/pull/43)) already contained |
+| Compare `origin/main...upstream/main` before the merge | 55 fork-only, 173 upstream-only |
+| Upstream range | `31bf65e6..a0eaaaaf` |
+| Merge commit | `91794e51` |
+| Pull request | `sync-upstream-20261123` (number filled in once GitHub assigns it) |
+
+Upstream in that range includes releases 0.9.2 and 0.10.0, apps on iOS
+and Android ([#940](https://github.com/egoist/mygo/pull/940)), a Windows
+path linked as a whole from its drive or a UNC share
+([#2120](https://github.com/egoist/mygo/pull/2120)), rounding the corners
+of transparent Windows 10 windows
+([#2176](https://github.com/egoist/mygo/pull/2176)), a sideways wheel
+reported to a program that takes the mouse
+([#2118](https://github.com/egoist/mygo/pull/2118)), a disabled drawn
+menu item's tooltip ([#1372](https://github.com/egoist/mygo/pull/1372)),
+`PageOptions.ZoomControl` ([#2097](https://github.com/egoist/mygo/pull/2097)),
+and the CLI passing the inherited environment to `process.execve`
+([#2222](https://github.com/egoist/mygo/pull/2222)). Fork-only work kept
+on top includes SystemGlass, `SetDrawMenus`, `Theme.Menu`, `LinkPath`,
+OSC 9;4 `OnProgress`, `makeExecutable`, the half-minute updater retry,
+libghostty-vt 1.0.1, `ReadsClipboard`, performable Command+C /
+Control+Shift+C, the autolink / path-link fixes, `v.top`, and the X11
+corner rounding from [#42](https://github.com/si-mods/mygo/pull/42).
+
+### Conflicts
+
+Six textual conflicts. Several other files changed on both sides and
+auto-merged; those were read. Two build tags that auto-merged without a
+marker would have compiled `corners.go` into the Android build of
+`internal/linux`, whose other files now exclude Android.
+
+| File | Root cause | What we kept |
+| --- | --- | --- |
+| `ui/paint.go` | Fork [#42](https://github.com/si-mods/mygo/pull/42) clips the content to `windowCorners` (X11, `CornerSurface`). Upstream [#2176](https://github.com/egoist/mygo/pull/2176) clips the frame with `roundFrame` (transparent Windows 10, `ContentCorners`). Git put the two functions in one body. | Both functions, and both call sites. `windowCorners` still cuts the content. `roundFrame` still cuts the frame. `isSystemGlass` still keeps a SystemGlass element out of a fade group. |
+| `ui/popovermenu.go` | Fork `Theme.Menu` sets row height, radius and padding, then called `Disabled`. Upstream [#1372](https://github.com/egoist/mygo/pull/1372) stopped calling `Disabled`: a disabled item is `unavailable`, so it stays under the pointer and its tooltip can say why. | The theme's row style. `row.Label` without `Disabled`. `themed` already passed `parts.level` (the auto-merge did not revive `m.level`). |
+| `ui/api_gen.go` | Both sides added a wrapper in the same alphabetical slot (`SetDrawMenus`, `SafeArea`). | `go generate ./ui`. `SafeArea` and `SetDrawMenus` / `DrawMenus` are both there. Not hand-merged. |
+| `plugins/terminal/links.go` | Fork directories (`~/`, `./`, `../`) and drive paths, and upstream [#2120](https://github.com/egoist/mygo/pull/2120) (a Windows path, drive or UNC, is one link; a backslash elsewhere is not). The two `drive` patterns were the same expression. | One `drivePath`. `windowsPath` decides which names take `\` as a separator, so `D:\dev\main.go` and `\\server\share\a.pdf` are whole links and `hello\nworld` is not. `dirOnly` still accepts `~/`, `./` and `../`, which hold no letter. `pathAtRows` is unchanged. `isDir` treats a `windowsPath` that ends in `\` as a directory, so a UNC share is not a link unless `LinkPath` says so. |
+| `plugins/terminal/links_test.go` | Both sides appended path cases and a span test. | Fork directory, CJK, drive and `pathAtRows` cases, plus upstream's Windows and UNC rows and `TestPathAtWindowsSpan`. |
+| `docs/plugins/terminal.md` | Fork lists `docs/` among printed paths. Upstream lists `D:\dev\main.go`. | Both. |
+
+`internal/linux/corners.go`, `corners_test.go` and
+`internal/e2e/corners_linux_test.go` kept the pre-Android tag
+`linux && (amd64 || arm64)`. Upstream's Linux package is now
+`linux && !android`. Those three files got `!android` too, so an Android
+build does not compile the X11 corner code alone. `go list` for
+`GOOS=android` excludes every file of `internal/linux`.
+
+### Semantic review of auto-merged files
+
+| File | What both sides needed | Resolution |
+| --- | --- | --- |
+| `ui/menu.go`, `ui/menupresentation.go` | Upstream's edit commands follow `platform.MacKeys` (iOS as well as macOS). The fork still opens a drawn editing menu on the last pass and falls back to the system menu for a toast. | Upstream command list. Fork `editMenu`, `requestFrame` when `inFrame && pass >= 2`, and `openSystemEditMenu`. `menupresentation.go` was unchanged upstream. |
+| `ui/runtime.go` | Upstream's frame work, plus the fork placing SystemGlass after present. | `placeSystemGlass()` after `placeNativeGlass` in `runFrame` and after `present` in `repaintFrame`. |
+| `ui/theme.go` | Upstream's body font sizes on iOS and Android. Fork `Theme.Menu`. | Both. |
+| `ui/input.go`, `ui/handler.go`, `internal/darwin/surface.go` | Upstream refactored the key by position. The fork still delivers the key of a menu command (Command+C) on `SurfaceCommand`. | `pressedKey` is upstream's. A command still carries `key`, `physical`, `mods` and `repeat`. |
+| `ui/transition.go` | A material paints in place of the background, which must not fade in under it. | The fork's `fillMaterial` target stays, inside upstream's color animation. |
+| `internal/platform/surface.go` | Upstream `ViewSurface` and touch. Fork `SystemGlassSurface` and `CornerSurface`. | Sibling types. SystemGlass was not folded into `GlassSurface` or `ViewSurface`. X11 rounding was not folded into `ContentCorners`. |
+| `internal/linux/window.go`, `app.go`, `surface.go`, `testhooks.go` | Upstream's hidden title bar on KDE, and the accel group released on close. Fork [#42](https://github.com/si-mods/mygo/pull/42) shapes X11 corners and watches allocation. | Both. `watchAllocation` serves the input shape and the corner shape. `blendCorners` still runs before the window is realized. |
+| `window.go`, `ui/window.go`, `internal/platform/platform.go`, `docs/windows.md` | Upstream documented new window options. Fork documented X11 `CornerRadius`. | Both. `windowHost.windowCorners` still reads `CornerSurface`. |
+| `plugins/terminal/view.go`, `terminal.go` | Upstream [#2118](https://github.com/egoist/mygo/pull/2118) sends a sideways wheel to a program that takes the mouse, and otherwise to the handlers outside the view. The fork still joins a wrapped path through `pathAtRows` and trims autolink prose. | Both. `OpenLink`'s comment names Windows paths. `pathAtRows` is still the filter after `pathAt`. |
+| `plugins/terminal/paint.go`, `updater.go`, `mygo-plugin.json` | Unchanged upstream since `31bf65e6`. | Fork text. `v.top` is still set after the cursor is known. `httpRetries` is still `1s`, `5s`, `20s`. The pin is still ghostty `108cacb`. |
+| `internal/darwin/app.go`, `notify.go` | Upstream's notification flow. The fork asks for authorization when the Dock badge is first set. | `requestNotificationAuthorization`, with `notifyAsking` so a badge and a notification do not ask twice. |
+| `internal/darwin/surface.go`, `testhooks.go` | Upstream's command key. Fork SystemGlass panes. | `systemGlass` and `TestSystemGlass` stay. `destroy` still calls `destroySystemGlass`. |
+
+### Behavior that must keep working
+
+The 2026-11-16 list still applies. In addition:
+
+- X11 still rounds an undecorated window's corners ([#42](https://github.com/si-mods/mygo/pull/42)): smooth where a compositor blends an alpha frame, hard-edged otherwise, square while maximized, tiled or full screen, and not on Wayland. Transparent windows are not cut.
+- A transparent Windows 10 window still cuts its frames with `roundFrame` ([#2176](https://github.com/egoist/mygo/pull/2176)). That path is `ContentCorners`, not `CornerSurface`.
+- A disabled drawn menu item is unavailable, not `Disabled`, so its tooltip still shows. `Theme.Menu` still styles the row.
+- A Windows path is one link from its drive or UNC root. `~/`, `./` and `../` are still paths. A directory, including `\\server\share\`, is still not a link unless `LinkPath` says so.
+- `pathAtRows` is still a filter after `pathAt`.
+
+### Tests
+
+`CGO_ENABLED=0 go build ./...`, `GOOS=darwin`, `GOOS=windows`, and
+`GOOS=js GOARCH=wasm` (175 packages, excluding `cmd/mygo` and
+`internal/e2e`) all built. `go vet` passed for linux, darwin, windows,
+`-tags mygo_noinspector`, and js/wasm (wasm vet excluded `cmd/mygo`).
+`GOOS=android GOARCH=arm64 go list` excludes every file of
+`internal/linux`.
+
+`CGO_ENABLED=0 go test -count=1 -skip TestDiffFrameAllocs ./...` passed
+except `internal/nativegen` `TestScaffoldBuildsRust Zig`: rustc warns
+`struct NativeB is never constructed` on the generated stub, and Zig is
+not installed (logged, not the failure). That test is upstream
+native-module code and was not edited in the resolution.
+`plugins/terminal`, `ui` and `internal/linux` passed, including the link,
+viewport, menu, updater and corner tests. `TestDiffFrameAllocs` was
+skipped (it already fails on upstream). GUI e2e on macOS and Windows was
+not run.
+
+Regression coverage for this resolution: `TestMenuStyle*`,
+`TestDrawMenus*`, `TestSystemGlass*`, `TestPathAt`, `TestPathAtDrive`,
+`TestPathAtWindowsSpan`, `TestPathAtRows`, `TestIsDir`,
+`TestCommandClickDirs`, `TestViewShowsTheRowsAroundTheCursorOfATallerScreen`,
+`TestMakeExecutable`, `TestHTTPGetRetries`, `TestReadsClipboard`,
+`TestPerformableCopyKeys`, and `TestCorner` in `internal/linux` and `ui`.
+
+### Hotspots
+
+The same files remain hot: `ui/popovermenu.go` (`parts.level`, and now
+do not put `Disabled` back on a drawn item), `ui/paint.go` (two corner
+clips), `plugins/terminal/view.go` / `links.go` (`pathAtRows` after
+`pathAt`), and `updater.go`.
+
+Smaller next time, beyond the 2026-11-16 list:
+
+- `windowCorners` and `roundFrame` are different clips. Do not collapse
+  them into one function, and do not drop either call site.
+- In `pathOf`, keep `dirOnly` when taking upstream's colon check, and
+  keep `windowsPath` for the separator. Do not put a second `drive`
+  pattern next to `drivePath`.
+- Linux files the fork adds need `linux && !android`, the same tag as
+  the rest of `internal/linux`, or an Android build compiles them alone.
+- A drawn item's theme style stays. Its disabled state is `unavailable`
+  from `item`, which is what lets the tooltip show.
+
 ## 2026-11-16
 
 Sync of `upstream/main` into a fresh branch from current fork `main`.
@@ -331,7 +460,7 @@ Smaller next time:
 
 ## Upstream candidates
 
-Checked against `31bf65e6` on 2026-11-16. `git grep` of that tree and a
+Checked against `a0eaaaaf` on 2026-11-23. `git grep` of that tree and a
 search of egoist/mygo issues and pull requests found no existing item
 for `LinkPath`, `OnProgress`, `makeExecutable`, `Theme.Menu` /
 `MenuStyle`, `ReadsClipboard`, `SystemGlass`, or `SetDrawMenus`.
@@ -384,18 +513,24 @@ commented on egoist/mygo.
 
 7. **Terminal autolink and wrapped-path fixes.** Not in upstream's
    terminal package. [#1677](https://github.com/egoist/mygo/pull/1677)
-   already opens a soft-wrapped URL as a whole; do not send that again.
-   The fork extras are: end an OSC 8 autolink before the prose a
-   program attached ([#34](https://github.com/si-mods/mygo/pull/34)–[#38](https://github.com/si-mods/mygo/pull/38)),
-   join a path the program wrapped ([#40](https://github.com/si-mods/mygo/pull/40)),
-   Windows drive paths ([#39](https://github.com/si-mods/mygo/pull/39)),
-   and trim full-width punctuation ([#28](https://github.com/si-mods/mygo/pull/28)).
+   already opens a soft-wrapped URL as a whole, and
+   [#2120](https://github.com/egoist/mygo/pull/2120) already links a
+   Windows path as a whole from its drive or a UNC share. Do not send
+   either again. The fork extras that remain are: end an OSC 8 autolink
+   before the prose a program attached
+   ([#34](https://github.com/si-mods/mygo/pull/34)–[#38](https://github.com/si-mods/mygo/pull/38)),
+   join a path the program wrapped
+   ([#40](https://github.com/si-mods/mygo/pull/40)), and trim full-width
+   punctuation ([#28](https://github.com/si-mods/mygo/pull/28)).
    `pathAtRows` should stay a call to `pathAt` plus the `LinkPath`
-   filter, so this can ship with item 1 or just after it. Tests:
-   `TestPathAtRows`, `TestPathAtDrive`, `TestPathAtSpanCJKPunct`,
-   `TestCommandClickWrappedPath`, the autolink prose tests. Sending
-   this removes the `linkAt` conflict. A soft-wrapped path's underline
-   is still the hovered row; the opened string is the whole path.
+   filter, so this can ship with item 1 or just after it. A drive path
+   inside a larger token (`PATH=C:\bin;D:\bin`, `main.go:12:code`) is
+   still the fork's `pathInToken` alternative; [#2120](https://github.com/egoist/mygo/pull/2120)
+   does not split those. Tests: `TestPathAtRows`, `TestPathAtDrive`,
+   `TestPathAtSpanCJKPunct`, `TestCommandClickWrappedPath`, the autolink
+   prose tests. Sending this removes the `linkAt` conflict. A
+   soft-wrapped path's underline is still the hovered row; the opened
+   string is the whole path.
 
 8. **`ReadsClipboard`.** Small export, still absent. Test:
    `TestReadsClipboard` in `headless_test.go`.
@@ -422,6 +557,22 @@ commented on egoist/mygo.
     needs egoist to publish those builds. Not a drop-in patch. No
     dedicated 1.0.1 bump was found in egoist/mygo pull requests.
 
+12. **X11 rounding of undecorated window corners**
+    ([si-mods/mygo#42](https://github.com/si-mods/mygo/pull/42)).
+    Upstream rounds macOS and Windows 11 itself
+    ([#1849](https://github.com/egoist/mygo/pull/1849)) and clips a
+    transparent Windows 10 frame
+    ([#2176](https://github.com/egoist/mygo/pull/2176), `ContentCorners`
+    / `roundFrame`). Neither cuts an X11 window. The fork does, with a
+    compositor (alpha frame, `CornerSurface`) or without (an X shape),
+    square while maximized, tiled or full screen, and not on Wayland or
+    for a transparent window. Sending it removes the `windowCorners` /
+    `roundFrame` collision in `ui/paint.go` and the Linux window files,
+    if it stays a sibling of `ContentCorners` rather than a second copy
+    of `roundFrame`. Tests: `internal/linux` `TestCorner`,
+    `ui/corners_test.go`. Linux GUI e2e (`internal/e2e/corners_linux_test.go`)
+    was not run here.
+
 ### Keep in the fork
 
 - **`SetDrawMenus(bool)`.** Still a wrapper: `true` is
@@ -431,7 +582,9 @@ commented on egoist/mygo.
   `Glass{Native: true}` and from `ViewSurface`: under web views, over
   the window material, on `supportsSystemGlass` / `placeSystemGlass` /
   `SystemGlassSurface`. `Window.CornerRadius` ([#1849](https://github.com/egoist/mygo/pull/1849))
-  does not replace it. Linux `CornerRadius` returns 0.
+  does not replace it. On Linux X11, `CornerRadius` is now the fork's
+  rounding ([#42](https://github.com/si-mods/mygo/pull/42)), not 0; that
+  is candidate 12, not a replacement for SystemGlass.
 - **gorex call sites.** Not upstream's.
 
 ### Not a candidate
@@ -446,5 +599,12 @@ commented on egoist/mygo.
   [#27](https://github.com/si-mods/mygo/pull/27)) were dropped.
 - **A URL ending at the first non-ASCII character.** Already
   [#1481](https://github.com/egoist/mygo/pull/1481). No fork-only copy.
+- **A Windows path linked as a whole.** Already
+  [#2120](https://github.com/egoist/mygo/pull/2120). This sync took it.
+  The fork still adds `pathAtRows`, the `LinkPath` filter, and the
+  drive alternative inside a larger token.
+- **Clipping a transparent Windows 10 frame.** Already
+  [#2176](https://github.com/egoist/mygo/pull/2176). This sync kept
+  `roundFrame`. It does not round X11.
 - Renaming or deleting the remaining wrappers to match upstream. That
   would break gorex (`SetDrawMenus`, `LinkPath`, `SystemGlass`).
