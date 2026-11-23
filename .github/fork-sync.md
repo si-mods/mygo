@@ -120,6 +120,41 @@ Regression coverage for this resolution: `TestMenuStyle*`,
 `TestCommandClickDirs`, `TestViewShowsTheRowsAroundTheCursorOfATallerScreen`,
 `TestMakeExecutable`, `TestHTTPGetRetries`, `TestReadsClipboard`,
 `TestPerformableCopyKeys`, and `TestCorner` in `internal/linux` and `ui`.
+`internal/forksync` checks the release workflow's repository gate and
+that the versions agree.
+
+### Release
+
+The fork release is `v0.10.1`. `bun scripts/version.ts 0.10.1` set
+`mygo.Version`, the CLI version, the npm package manifests and
+`bun.lock`, and `bun scripts/version.ts --check v0.10.1` passed. The tag
+and those versions are the same string, so the release workflow's
+version check is a real check. It is not a failure we rely on.
+
+`v0.10.1` is a release semver above the fork's highest tag `v0.7.3` and
+above upstream `v0.10.0`. A pre-release such as `v0.10.0-fork.1` sorts
+below every release, and `go get @latest` ignores pre-releases once any
+release exists, so the fork's `@latest` would stay `v0.7.3`. The module
+path stays `github.com/egoist/mygo`. Consumers keep the replace form.
+Direct `go get github.com/si-mods/mygo@v0.10.1` fails Go's path check.
+
+`.github/workflows/release.yml` publishes the npm packages and requests
+`proxy.golang.org/github.com/egoist/mygo` only when
+`github.repository == 'egoist/mygo'`. A fork tag still runs the version
+check, installs and builds, and creates the GitHub release. No npm
+token or permission was added. The notes committed at
+`.github/fork-release-notes.md` are what this repository's release uses.
+Upstream has no such file and still gets generated notes.
+`internal/forksync` checks the gate, the notes, and that every version
+`scripts/version.ts` writes agrees with `mygo.Version`.
+
+On the next sync, put the `egoist/mygo` condition back on the npm
+update, the npm publish and the egoist module-proxy step if upstream's
+workflow replaces them. Keep the notes-file branch on the GitHub release
+step. Do not reset `mygo.Version` to an upstream version that is lower.
+If upstream's version is equal or higher, set the next fork release with
+`bun scripts/version.ts` to a release semver above both that version and
+the previous fork tag, then commit the result before tagging.
 
 ### Hotspots
 

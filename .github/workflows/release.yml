@@ -34,15 +34,21 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build the JavaScript packages
         run: bun run build
+      # The npm packages and the egoist/mygo module proxy belong to the
+      # upstream repository. Any other repository, including this fork,
+      # still checks the version and creates its own GitHub release.
       - name: Update npm, for trusted publishing
+        if: github.repository == 'egoist/mygo'
         run: npm install -g npm@latest
       - name: Publish the npm packages
+        if: github.repository == 'egoist/mygo'
         env:
           # Needed until npm trusts this workflow to publish every package,
           # which it can only for packages that exist.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: bun scripts/publish.ts --provenance
       - name: Add the Go module to the module proxy
+        if: github.repository == 'egoist/mygo'
         continue-on-error: true
         run: curl -fsS "https://proxy.golang.org/github.com/egoist/mygo/@v/$GITHUB_REF_NAME.info"
       - name: Create the GitHub release
@@ -56,4 +62,11 @@ jobs:
           if [[ $GITHUB_REF_NAME == *-* ]]; then
             flags+=(--prerelease)
           fi
-          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "MyGo ${GITHUB_REF_NAME#v}" "${flags[@]}"
+          # A fork commits its notes. Upstream has no such file and keeps
+          # the generated notes.
+          if [[ -f .github/fork-release-notes.md ]]; then
+            flags+=(--notes-file .github/fork-release-notes.md)
+          else
+            flags+=(--generate-notes)
+          fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "MyGo ${GITHUB_REF_NAME#v}" "${flags[@]}"
