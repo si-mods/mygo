@@ -250,12 +250,12 @@ type Options struct {
 	// OpenLink takes what a Command+click (Control+click elsewhere)
 	// opens: a hyperlink (OSC 8), a URL printed as text, or, only with
 	// OpenLink set, a file path printed as text (absolute, ~/, ./ or ../,
-	// one with a slash, or a file name with an extension), as printed, a
-	// :line:col suffix included; a relative one is the program's, as of
-	// Dir. It runs on the main thread and reports whether it opened the
-	// link; a hyperlink or a URL it leaves, or every one when it is nil,
-	// opens with the system (Context.OpenURL), and a path it leaves does
-	// nothing.
+	// one with a slash, a Windows one from its drive, as D:\dev\main.go,
+	// or a file name with an extension), as printed, a :line:col suffix
+	// included; a relative one is the program's, as of Dir. It runs on
+	// the main thread and reports whether it opened the link; a hyperlink
+	// or a URL it leaves, or every one when it is nil, opens with the
+	// system (Context.OpenURL), and a path it leaves does nothing.
 	OpenLink func(link string) bool
 	// LinkPath decides, with OpenLink, whether a file path printed as
 	// text is a link, as printed, a :line:col suffix included: an app can

@@ -29,9 +29,15 @@ var pathToken = regexp.MustCompile(`[^\s"'<>` + "`" + proseDelimiters + `]+`)
 // a word boundary: abc:/foo holds no drive.
 var pathInToken = regexp.MustCompile(`(?:\b[A-Za-z]:[\\/][^\s:;]+|(?:~|\.{1,2})?/[^\s:]+|[\p{L}\p{N}_.@+-]+(?:/[\p{L}\p{N}_.@+-]+)+/?)(?::\d+(?::\d+)?)?|[\p{L}\p{N}_@+-][\p{L}\p{N}_.@+-]*\.[\p{L}\p{N}_]+(?::\d+(?::\d+)?)?`)
 
-// drivePath finds the drive a Windows path starts with, as C:\ or D:/. Only
-// a path with one takes \ as a separator.
+// drivePath finds the drive a Windows path starts with, as C:\ or D:/. Its
+// colon is the path's, not a place's.
 var drivePath = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+
+// windowsPath starts a Windows path, at a drive or a UNC server, as
+// \\server\share, whose backslashes are separators: the whole of
+// D:\dev\main.go is the link, not main.go at its end. Elsewhere a backslash
+// is not a separator, so that hello\nworld and \d+ are not paths.
+var windowsPath = regexp.MustCompile(`^(?:[A-Za-z]:|\\\\[^\\/\s]+)[\\/]`)
 
 // quotedPlace finds the place after a quoted path, as "main.py":12.
 var quotedPlace = regexp.MustCompile(`^:\d+(?::\d+)?`)
@@ -42,8 +48,9 @@ var quotedPlace = regexp.MustCompile(`^:\d+(?::\d+)?`)
 var pathPlace = regexp.MustCompile(`:(\d+)(?::(\d+))?:?$|\((\d+)(?:,(\d+))?\)$|#L(\d+)(?:C(\d+))?$`)
 
 // pathAt returns the file path of text at column col, as urlAt, or "":
-// absolute, from ~, ./ or ../, with a slash, or a file name with an
-// extension or a line; the place in the file is written path:line:col
+// absolute, from ~, ./ or ../, with a slash, from a Windows drive, or a
+// file name with an extension or a line; the place in the file is written
+// path:line:col
 // however it was printed, and a quoted path loses its quotes.
 func pathAt(text []rune, cols []int, col int) (path string, x0, x1 int) {
 	s := string(text)
@@ -374,10 +381,10 @@ func pathOf(tok string) (path string, a, b int) {
 		name = name[1 : len(name)-1]
 	}
 	// ~/ ./ and ../ alone are directories, as docs/ is. They hold no letter.
+	// A path holds a colon only after its drive.
 	dirOnly := name == "~/" || name == "./" || name == "../"
-	drive := drivePath.MatchString(name)
 	rest := name
-	if drive {
+	if drivePath.MatchString(name) {
 		rest = name[2:] // the colon after the drive letter is part of it
 	}
 	if !dirOnly && (name == "" || strings.ContainsAny(rest, ":\x00\r\n") ||
@@ -386,7 +393,13 @@ func pathOf(tok string) (path string, a, b int) {
 	}
 	// Words are not paths: a name without a slash takes a letter, and an
 	// extension or a line, so that version 1.2.3 and 12:30 are neither.
-	if !drive && !strings.Contains(name, "/") {
+	// A Windows path's backslashes are separators, so the whole path is
+	// the link. Elsewhere a backslash is not one.
+	separators := "/"
+	if windowsPath.MatchString(name) {
+		separators = `/\`
+	}
+	if !strings.ContainsAny(name, separators) {
 		dot := strings.LastIndexByte(name, '.')
 		if strings.IndexFunc(name, unicode.IsLetter) < 0 || line == 0 && (dot < 0 || dot == len(name)-1) {
 			return "", 0, 0
@@ -484,11 +497,12 @@ func trimURL(u string) string {
 
 // isDir reports whether a path printed as text names a directory, by the
 // slash at its end, as docs/, ~/ or docs/:12: one a word before a slash in
-// prose (w/, I/, yes/no/) prints too. pathAt writes every place as
-// path:line:col, so the line is stripped before the slash is read.
+// prose (w/, I/, yes/no/) prints too. A Windows path, a drive or a UNC
+// share, is a directory when it ends in a backslash. pathAt writes every
+// place as path:line:col, so the line is stripped before the slash is read.
 func isDir(path string) bool {
 	path = lineSuffix.ReplaceAllString(path, "")
-	return strings.HasSuffix(path, "/") || drivePath.MatchString(path) && strings.HasSuffix(path, `\`)
+	return strings.HasSuffix(path, "/") || windowsPath.MatchString(path) && strings.HasSuffix(path, `\`)
 }
 
 // lineSuffix is the :line or :line:col at the end of a path.
