@@ -98,15 +98,21 @@ The 2026-11-16 list still applies. In addition:
 `GOOS=android GOARCH=arm64 go list` excludes every file of
 `internal/linux`.
 
-`CGO_ENABLED=0 go test -count=1 -skip TestDiffFrameAllocs ./...` passed
-except `internal/nativegen` `TestScaffoldBuildsRust Zig`: rustc warns
-`struct NativeB is never constructed` on the generated stub, and Zig is
-not installed (logged, not the failure). That test is upstream
-native-module code and was not edited in the resolution.
+The first pass skipped `TestDiffFrameAllocs` and had no Zig. The re-run
+below replaces that note.
+
 `plugins/terminal`, `ui` and `internal/linux` passed, including the link,
-viewport, menu, updater and corner tests. `TestDiffFrameAllocs` was
-skipped (it already fails on upstream). GUI e2e on macOS and Windows was
-not run.
+viewport, menu, updater and corner tests. `TestDiffFrameAllocs` passes
+here and on upstream `a0eaaaaf` (a steady frame and a scroll within
+laid-out rows each allocate 2 times). Do not skip it. A later run of
+`CGO_ENABLED=0 go test -count=1 ./...`, every package except
+`internal/e2e`, passed except `TestScaffoldBuildsRustZig`. With Zig
+0.16.0 the Zig packages compile. rustc 1.83 warns `struct NativeB is
+never constructed` on the clash stub, and the same warning fails the
+same test on `a0eaaaaf`. Zig 0.15.2 cannot compile the generated
+`std.Io` code. The nativegen tree was not edited. Do not delete or skip
+that test. GUI e2e on macOS, Windows and Linux was not run: this host
+has no display session.
 
 Regression coverage for this resolution: `TestMenuStyle*`,
 `TestDrawMenus*`, `TestSystemGlass*`, `TestPathAt`, `TestPathAtDrive`,
