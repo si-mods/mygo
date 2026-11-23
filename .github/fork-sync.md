@@ -19,7 +19,7 @@ egoist/mygo, and both default branches are still `main`.
 | Compare `origin/main...upstream/main` before the merge | 55 fork-only, 173 upstream-only |
 | Upstream range | `31bf65e6..a0eaaaaf` |
 | Merge commit | `91794e51` |
-| Pull request | `sync-upstream-20261123` (number filled in once GitHub assigns it) |
+| Pull request | [#44](https://github.com/si-mods/mygo/pull/44) (`sync-upstream-20261123`) |
 
 Upstream in that range includes releases 0.9.2 and 0.10.0, apps on iOS
 and Android ([#940](https://github.com/egoist/mygo/pull/940)), a Windows
