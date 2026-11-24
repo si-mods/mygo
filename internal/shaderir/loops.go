@@ -6,20 +6,22 @@ import (
 )
 
 // maxFloatSteps is how many steps of a float counter LoopRuns takes, in
-// float32 as the GPU does, to count a loop exactly; a longer one counts
-// in float64.
+// float32 as the GPU and the CPU's interpreter add, to count a loop; a
+// longer one is unbounded, as one whose counter stops growing in float32.
 const maxFloatSteps = 1 << 16
 
 // LoopRuns reports the most times the loop bodies of the fragment entry
 // point run for one pixel, every loop's counted: a loop of n runs inside
 // one of m adds m + m*n. A loop in a function counts at each call, times
 // the loops around it; the larger branch of an if counts. bounded is
-// false when a loop's start or end is not a constant, or its counter
-// never reaches the end (or wraps around); runs saturate at math.MaxInt.
+// false when a loop's start or end is not a constant, its body writes its
+// counter, or its counter never reaches the end (wraps around, stops
+// growing in float32, or takes more than maxFloatSteps float steps); runs
+// saturate at math.MaxInt.
 func (p *Program) LoopRuns() (runs int, bounded bool) {
-	funcs := map[int]*Block{}
-	for _, f := range p.Funcs {
-		funcs[f.Index] = f.Block
+	funcs := map[int]*Func{}
+	for i := range p.Funcs {
+		funcs[p.Funcs[i].Index] = &p.Funcs[i]
 	}
 	l := loopCounter{funcs: funcs, done: map[int]int{}, open: map[int]bool{}, bounded: true}
 	runs = l.block(p.FragmentFunc.Block)
@@ -27,7 +29,7 @@ func (p *Program) LoopRuns() (runs int, bounded bool) {
 }
 
 type loopCounter struct {
-	funcs   map[int]*Block
+	funcs   map[int]*Func
 	done    map[int]int // the runs of a function, counted
 	open    map[int]bool
 	bounded bool
@@ -46,7 +48,7 @@ func (l *loopCounter) block(b *Block) int {
 		switch s.Type {
 		case For:
 			trips, ok := forTrips(s)
-			if !ok {
+			if !ok || l.writes(s.Blocks[0], s.ForVarIndex) {
 				l.bounded = false
 				trips = math.MaxInt
 			}
@@ -78,6 +80,68 @@ func (l *loopCounter) expr(e *Expr) int {
 	return n
 }
 
+// writes reports whether b writes the local variable v, a loop's counter:
+// assigns it, or passes it as a function's out-param.
+func (l *loopCounter) writes(b *Block, v int) bool {
+	if b == nil {
+		return false
+	}
+	for i := range b.Stmts {
+		s := &b.Stmts[i]
+		if s.Type == Assign && len(s.Exprs) > 0 && rootLocal(&s.Exprs[0]) == v {
+			return true
+		}
+		if s.Type == Init && s.InitIndex == v {
+			return true
+		}
+		for j := range s.Exprs {
+			if l.outArg(&s.Exprs[j], v) {
+				return true
+			}
+		}
+		for _, c := range s.Blocks {
+			if l.writes(c, v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// outArg reports whether e passes the local variable v to a call as an
+// out-param.
+func (l *loopCounter) outArg(e *Expr, v int) bool {
+	if e.Type == Call && len(e.Exprs) > 0 && e.Exprs[0].Type == FunctionExpr {
+		in := 0
+		if fn := l.funcs[e.Exprs[0].Index]; fn != nil {
+			in = len(fn.InParams)
+		}
+		for i := 1 + in; i < len(e.Exprs); i++ {
+			if rootLocal(&e.Exprs[i]) == v {
+				return true
+			}
+		}
+	}
+	for i := range e.Exprs {
+		if l.outArg(&e.Exprs[i], v) {
+			return true
+		}
+	}
+	return false
+}
+
+// rootLocal returns the local variable e is, or is an element, a field or
+// a swizzle of, or -1.
+func rootLocal(e *Expr) int {
+	for (e.Type == FieldSelector || e.Type == Index || e.Type == SwizzlingExpr) && len(e.Exprs) > 0 {
+		e = &e.Exprs[0]
+	}
+	if e.Type == LocalVariable {
+		return e.Index
+	}
+	return -1
+}
+
 func (l *loopCounter) call(f int) int {
 	if n, ok := l.done[f]; ok {
 		return n
@@ -87,7 +151,10 @@ func (l *loopCounter) call(f int) int {
 		return math.MaxInt
 	}
 	l.open[f] = true
-	n := l.block(l.funcs[f])
+	var n int
+	if fn := l.funcs[f]; fn != nil {
+		n = l.block(fn.Block)
+	}
 	delete(l.open, f)
 	l.done[f] = n
 	return n
@@ -156,10 +223,7 @@ func floatTrips(s *Stmt) (int, bool) {
 		}
 		x += d
 	}
-	if s.ForOp == EqualOp || s.ForOp == NotEqualOp || (s.ForOp == LessThanOp || s.ForOp == LessThanEqualOp) != (d > 0) {
-		return 0, false
-	}
-	return int(math.Min(math.Ceil((end-init)/delta)+1, math.MaxInt)), true
+	return 0, false
 }
 
 func holds(op Op, a, b float64) bool {

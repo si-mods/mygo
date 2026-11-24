@@ -226,8 +226,9 @@ func Compile(src string) (*Shader, error) {
 // one of m counts m*n, besides the outer loop's m; a loop in a function
 // counts at each call, times the loops around the call; sequential loops
 // add up, and an if's larger branch counts. bounded is false when a
-// loop's start or end is not a constant, or its counter never reaches its
-// end; runs then mean nothing. Runs saturate at math.MaxInt. Compile
+// loop's start or end is not a constant, its body writes its counter, or
+// its counter never reaches its end (as a float counter that stops
+// growing in float32); runs then mean nothing. Runs saturate at math.MaxInt. Compile
 // counts them, without running the shader.
 func (s *Shader) LoopRuns() (runs int, bounded bool) { return s.runs, s.bounded }
 

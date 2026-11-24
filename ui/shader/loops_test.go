@@ -113,6 +113,40 @@ func Fragment(dst vec4, pos vec2) vec4 {
 	}
 	return vec4(s)
 }`, 0, false},
+		{"body sets the counter", `func Fragment(dst vec4, pos vec2) vec4 {
+	s := 0.0
+	for i := 0; i < 4; i++ {
+		i -= 1
+		s += 1
+	}
+	return vec4(s)
+}`, 0, false},
+		{"branch resets the counter", `func Fragment(dst vec4, pos vec2) vec4 {
+	s := 0.0
+	for i := 0; i < 4; i++ {
+		for j := 0; j < 2; j++ {
+			if pos.x > 0 {
+				i = 0
+			}
+		}
+		s += 1
+	}
+	return vec4(s)
+}`, 0, false},
+		{"float counter stalls", `func Fragment(dst vec4, pos vec2) vec4 {
+	s := 0.0
+	for x := 0.0; x < 100000000.0; x += 1.0 {
+		s += 1
+	}
+	return vec4(s)
+}`, 0, false},
+		{"float counter in float32", `func Fragment(dst vec4, pos vec2) vec4 {
+	s := 0.0
+	for x := 0.0; x < 1.0; x += 0.1 {
+		s += 1
+	}
+	return vec4(s)
+}`, 10, true}, // 0.1 ten times is above 1 in float32, below it in float64
 		{"effect", `func ColorEffect(pos vec2, color vec4) vec4 {
 	for i := 0; i < 6; i++ {
 		color *= 0.9
