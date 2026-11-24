@@ -45,6 +45,12 @@
 //
 //	instanceIndex() int        // the quad's index among those drawn
 //	instanceData(i int) float  // float i of the quad's own
+//
+// A loop's bounds may be any expressions, which the shader evaluates as
+// it runs. An app drawing shaders it does not trust, as a theme's, reads
+// Shader.LoopRuns before it draws one: whether every loop's bounds are
+// constants, and how many times, at most, the loops' bodies run for a
+// pixel.
 package shader
 
 import (
@@ -73,6 +79,8 @@ type Shader struct {
 	words    int
 	kind     kind
 	backdrop bool // it reads its backdrop
+	runs     int  // LoopRuns
+	bounded  bool
 }
 
 // kind is what a shader draws, by its entry point.
@@ -195,6 +203,7 @@ func Compile(src string) (*Shader, error) {
 		return nil, err
 	}
 	s := &Shader{prog: prog, uniforms: map[string]uniform{}, kind: k, backdrop: backdrop}
+	s.runs, s.bounded = p.LoopRuns()
 	for i, n := range interp.UniformWords(p) {
 		if i < len(bridgeWordsAt) && s.words != bridgeWordsAt[i] {
 			return nil, fmt.Errorf("shader: the bridge's %s at word %d, not %d", p.UniformNames[i], s.words, bridgeWordsAt[i])
@@ -211,6 +220,17 @@ func Compile(src string) (*Shader, error) {
 	s.fx.Shader = l
 	return s, nil
 }
+
+// LoopRuns reports the most times the loop bodies of s run for one
+// pixel, from its entry point, every loop's counted: a loop of n runs in
+// one of m counts m*n, besides the outer loop's m; a loop in a function
+// counts at each call, times the loops around the call; sequential loops
+// add up, and an if's larger branch counts. bounded is false when a
+// loop's start or end is not a constant, its body writes its counter, or
+// its counter never reaches its end (as a float counter that stops
+// growing in float32); runs then mean nothing. Runs saturate at math.MaxInt. Compile
+// counts them, without running the shader.
+func (s *Shader) LoopRuns() (runs int, bounded bool) { return s.runs, s.bounded }
 
 // MustCompile is Compile for a shader known to compile, as a package's
 // variable: it panics when it does not.
