@@ -8,7 +8,7 @@ import "github.com/egoist/mygo/internal/scene"
 // building the view; yet painting them all again, every background, text
 // run and Draw callback of the window, costs as much as what the window
 // shows. So the frame painting the window keeps, for each Draw or DrawOver
-// callback that asked to be painted again, the operations of the scene it
+// callback, or material (Element.Material), that asked to be painted again, the operations of the scene it
 // painted and the painter as it was: a frame that only paints again runs
 // those callbacks alone, as they were, and puts what they paint in the
 // place of what they painted, in the last frame's scene. Anything else
@@ -16,13 +16,13 @@ import "github.com/egoist/mygo/internal/scene"
 // layer, content changing) has the frame paint the window whole, as do the
 // inspector and a drag.
 
-// paintPart is a Draw (or, after, DrawOver) callback of element e, called
-// with box, that painted the operations of the window's scene from start
-// to end, with the painter as it was then, its opaque backgrounds and holes
-// apart.
+// paintPart is a Draw (or DrawOver, or the material of its background)
+// callback of element e, called with box, that painted the operations of
+// the window's scene from start to end, with the painter as it was then,
+// its opaque backgrounds and holes apart.
 type paintPart struct {
 	e          *node
-	after      bool
+	kind       partKind
 	box        Rect
 	start, end int
 	painter    Painter
@@ -33,16 +33,46 @@ type paintPart struct {
 	from, to int
 }
 
+// partKind is what of an element a part paints: its Draw callback, its
+// DrawOver callback, or the material of its background (Element.Material).
+type partKind uint8
+
+const (
+	partDraw partKind = iota
+	partDrawOver
+	partMaterial
+)
+
+// paintKind calls what kind names of e with box.
+func (p *Painter) paintKind(e *node, box Rect, kind partKind) {
+	switch kind {
+	case partDrawOver:
+		e.paintAfterFn(p, box)
+	case partMaterial:
+		e.material.PaintMaterial(p, box, e.radius)
+	default:
+		e.paintFn(p, box)
+	}
+}
+
 // draw calls e's Draw callback (DrawOver's when after) with box, noting
 // what it painted when it asks to be painted again (paintPart).
 func (p *Painter) draw(e *node, box Rect, after bool) {
-	fn := e.paintFn
+	kind := partDraw
 	if after {
-		fn = e.paintAfterFn
+		kind = partDrawOver
 	}
-	if p.drawing || p.s != &p.rt.scene {
+	p.part(e, box, kind)
+}
+
+// part paints what kind names of e with box, noting what it painted when
+// it asks to be painted again (paintPart): a material that asks for
+// frames (AnimationFrame, WatchPointer) is painted again alone, as a Draw
+// callback is.
+func (p *Painter) part(e *node, box Rect, kind partKind) {
+	if p.drawing || p.tracking || p.s != &p.rt.scene {
 		// Into a layer or a canvas, painted whole.
-		fn(p, box)
+		p.paintKind(e, box, kind)
 		return
 	}
 	rt := p.rt
@@ -52,23 +82,38 @@ func (p *Painter) draw(e *node, box Rect, after bool) {
 	sp := &rt.paths.spill
 	sp.run++
 	opened := sp.opened
-	p.drawing, p.asked = true, false
-	fn(p, box)
-	p.drawing = false
+	p.track(kind, true)
+	p.paintKind(e, box, kind)
+	p.track(kind, false)
 	sp.run++
 	if p.asked {
 		rt.partTransient += rt.text.TransientUses() - uses
 		sp.inParts += sp.opened - opened
-		rt.drawn = append(rt.drawn, paintPart{e: e, after: after, box: box, start: start, end: len(p.s.Ops), painter: state,
+		rt.drawn = append(rt.drawn, paintPart{e: e, kind: kind, box: box, start: start, end: len(p.s.Ops), painter: state,
 			under: append([]opaqueBox(nil), state.under...), holes: append([]Rect(nil), state.holes...)})
 	}
 }
 
+// track opens (on) or closes the part of kind, from which asks records
+// that it asks to be painted again. A Draw or DrawOver callback paints as
+// drawing; a material does not, as it paints as an element's background
+// (the system's glass shows only outside Draw callbacks, systemGlassShows).
+func (p *Painter) track(kind partKind, on bool) {
+	if on {
+		p.asked = false
+	}
+	if kind == partMaterial {
+		p.tracking = on
+	} else {
+		p.drawing = on
+	}
+}
+
 // asks notes that the drawing painting asks to be painted again: by
-// itself, as its part, from a Draw or DrawOver callback of the window's
-// painting, else with the whole window.
+// itself, as its part, from a Draw or DrawOver callback or a material of
+// the window's painting, else with the whole window.
 func (p *Painter) asks() {
-	if p.drawing {
+	if p.drawing || p.tracking {
 		p.asked = true
 	} else {
 		p.rt.untracked = true
@@ -114,18 +159,14 @@ func (rt *engine) repaintParts() bool {
 		p := &rt.painter
 		p.under = append(rt.under[:0], pt.under...)
 		p.holes = append(rt.holes[:0], pt.holes...)
-		fn := pt.e.paintFn
-		if pt.after {
-			fn = pt.e.paintAfterFn
-		}
 		// A part that no longer asks to be painted again stays, as what
 		// it painted last stays in the scene.
 		pt.from = len(s.Ops)
-		p.drawing, p.asked = true, false
+		p.track(pt.kind, true)
 		rt.paths.spill.run++
-		fn(p, pt.box)
+		p.paintKind(pt.e, pt.box, pt.kind)
 		rt.paths.spill.run++
-		p.drawing = false
+		p.track(pt.kind, false)
 		pt.to = len(s.Ops)
 		rt.under, rt.holes = p.under[:0], p.holes[:0]
 	}
