@@ -8,8 +8,9 @@ import "github.com/egoist/mygo/internal/scene"
 // building the view; yet painting them all again, every background, text
 // run and Draw callback of the window, costs as much as what the window
 // shows. So the frame painting the window keeps, for each Draw or DrawOver
-// callback, or material (Element.Material), that asked to be painted again, the operations of the scene it
-// painted and the painter as it was: a frame that only paints again runs
+// callback, or material (Element.Material), that asked to be painted
+// again, the operations of the scene it painted and the painter as it
+// was: a frame that only paints again runs
 // those callbacks alone, as they were, and puts what they paint in the
 // place of what they painted, in the last frame's scene. Anything else
 // asking for such a frame (a pose moving, a drawing in a canvas or a
@@ -82,10 +83,17 @@ func (p *Painter) part(e *node, box Rect, kind partKind) {
 	sp := &rt.paths.spill
 	sp.run++
 	opened := sp.opened
+	glass := len(rt.systemGlassPlaces)
 	p.track(kind, true)
 	p.paintKind(e, box, kind)
 	p.track(kind, false)
 	sp.run++
+	if p.asked && len(rt.systemGlassPlaces) > glass {
+		// A part that paints the system's glass and asks to be painted
+		// again: the window is painted whole, which lists the glass anew
+		// (systemGlassPlaces), rather than in parts adding to the list.
+		rt.untracked = true
+	}
 	if p.asked {
 		rt.partTransient += rt.text.TransientUses() - uses
 		sp.inParts += sp.opened - opened
