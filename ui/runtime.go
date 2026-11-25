@@ -516,6 +516,11 @@ type engine struct {
 	// when the repaint timer asked for the next (framesAtOnce).
 	repaintRate float32
 	repaintFull bool
+	// watchRate is the most frames a second the drawings that read the
+	// pointer ask for its moves to paint again (Painter.WatchPointer), as
+	// the last frame painted them; watchFrom is when that frame began.
+	watchRate float32
+	watchFrom time.Time
 	// drawn are the Draw and DrawOver callbacks of the last frame painted
 	// that asked to be painted again (paintPart), and untracked tells that
 	// something else asked, or that painting the parts alone would not do:
@@ -800,6 +805,7 @@ func (rt *engine) runFrame() {
 	rt.animating, rt.repainting, rt.repaintAt = false, false, time.Time{}
 	rt.aheadDone = false
 	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
+	rt.watchRate, rt.watchFrom = 0, now
 	rt.routeKeys()
 	rt.glideWheels(now)
 	if touchFrame != nil {
@@ -1257,6 +1263,7 @@ func (rt *engine) repaintFrame(w, h, scale float32) {
 	whole := rt.untracked || rt.lookDue
 	rt.lookDue = false
 	rt.repaintRate, rt.repaintFull, rt.untracked = 0, false, false
+	rt.watchRate, rt.watchFrom = 0, rt.c.now
 	root := rt.c.root
 	rt.repose()
 	if whole || !rt.repaintParts() {
