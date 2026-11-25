@@ -43,6 +43,9 @@ type Painter struct {
 	// window's scene, and asked that it asked to be painted again (see
 	// paintPart).
 	drawing, asked bool
+	// tracking tells that a material paints into the window's scene as a
+	// part, whose asks are noted as a Draw callback's (Painter.track).
+	tracking bool
 	// lifting is the element flying (ElementTransition.Fly) being painted
 	// over the rest of its layer (matches.paint), which elsewhere paints
 	// nothing.
@@ -711,7 +714,7 @@ func (p *Painter) fill(r Rect, radius [4]float32, bg Color, bw float32, bc Color
 func (p *Painter) background(e *node, box Rect, withBorder bool) {
 	border := withBorder && e.hasBorder()
 	if e.fill == fillMaterial {
-		e.material.PaintMaterial(p, box, e.radius)
+		p.part(e, box, partMaterial)
 		if border {
 			p.border(e, box)
 		}
