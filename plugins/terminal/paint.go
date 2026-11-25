@@ -182,6 +182,15 @@ func (v *view) paint(p *ui.Painter, r ui.Rect) {
 		v.top = min(max(0, v.cursor.Y-v.rows+1), v.top)
 	}
 	v.updateRows(rs, prev, all, cols, rows)
+	for i := range v.matches {
+		m := &v.matches[i]
+		if m.x0 > 0 && v.wideAt(m.y, m.x0-1) {
+			m.x0--
+		}
+		if m.x1+1 < cols && v.wideAt(m.y, m.x1) {
+			m.x1++
+		}
+	}
 	rs.Clean()
 	v.draw(p, r)
 }
@@ -424,6 +433,18 @@ func (v *view) buildRow(line *rowCache, rs *vt.RenderState, cells []vt.Cell, col
 	line.clear()
 	line.ok, line.filled = true, true
 	line.selA, line.selB, line.sel = rs.RowSelection()
+	if line.sel {
+		// Expand a selection that starts on a wide character's trailing
+		// spacer or ends on its leading cell so wide characters are never
+		// highlighted in half.
+		n := min(len(cells), cols)
+		if line.selA > 0 && line.selA < n && cells[line.selA].Wide == vt.SpacerTail {
+			line.selA--
+		}
+		if line.selB >= 0 && line.selB < n && cells[line.selB].Wide == vt.WideChar && line.selB+1 < cols {
+			line.selB++
+		}
+	}
 	def := resolved{fg: color(v.colors.Foreground), bg: color(v.colors.Background)}
 	def.shapeFg = def.fg
 	var styles []struct {
