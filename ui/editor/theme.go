@@ -69,7 +69,9 @@ func DefaultTheme(t *ui.Theme) *Theme {
 	ct.InactiveSelection = t.Selection.Alpha(0.55)
 	ct.ActiveIndentGuide = t.TextMuted.Alpha(0.6)
 	tok := func(k TokenKind, hex string) { ct.Tokens[k].Color = ui.Hex(hex) }
-	if t.Dark {
+	// The syntax colors follow the background's lightness, not the Dark
+	// flag: a theme may paint light surfaces under a dark appearance.
+	if isDark(t.Background) {
 		ct.ActiveLine = ui.RGBA(255, 255, 255, 0.045)
 		ct.MatchingBracket = ui.RGBA(255, 255, 255, 0.35)
 		ct.Match = ui.RGBA(255, 210, 60, 0.22)
