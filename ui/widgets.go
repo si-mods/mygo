@@ -152,6 +152,13 @@ func button(c *context, label string, primary bool) *node {
 // primary: without a face of its own until hovered in a toolbar, and as a
 // segment in a ToggleGroup or Segmented.
 func styleButton(c *context, b *node, primary bool) {
+	styleButtonBase(c, b, primary)
+	if c.buttons == 0 && c.theme.Button != nil && c.theme.Button.Style != nil {
+		c.theme.Button.Style(wrapElement(b), primary)
+	}
+}
+
+func styleButtonBase(c *context, b *node, primary bool) {
 	t := c.theme
 	b.Padding(t.Space(1.5), t.Space(3.5)).Gap(t.Space(1.5)).Radius(t.Radius)
 	base, hover, pressed, fg, border := t.Surface, t.SurfaceHover, t.SurfacePressed, t.Text, t.Border
@@ -182,7 +189,7 @@ func styleButton(c *context, b *node, primary bool) {
 // styleButtonFace is a button's styleFn: its pressed or hovered background
 // over the one it was built with, unless the view gave it another.
 func styleButtonFace(b *node) {
-	if b.bg != b.faces[0] || b.IsDisabled() {
+	if b.fill == fillMaterial || b.bg != b.faces[0] || b.IsDisabled() {
 		return
 	}
 	if b.Pressed() {
@@ -719,11 +726,21 @@ func coreSelect(c *context, selected *string, options []string) *node {
 	t := c.theme
 	sel := coreSelectBase(c, selected)
 	b := sel.Trigger
-	styleButton(c, b, false)
-	b.Justify(SpaceBetween).MinWidth(t.Space(35))
+	if t.Select != nil && t.Select.Trigger != nil {
+		styleButtonBase(c, b, false)
+		b.Justify(SpaceBetween).MinWidth(t.Space(35))
+		t.Select.Trigger(wrapElement(b))
+	} else {
+		styleButton(c, b, false)
+		b.Justify(SpaceBetween).MinWidth(t.Space(35))
+	}
 	b.Children(func() {
 		coreText(c, *selected).SingleLine()
-		chevron(c, t.TextMuted)
+		if t.Select != nil && t.Select.Chevron != nil {
+			t.Select.Chevron(makeContext(c))
+		} else {
+			chevron(c, t.TextMuted)
+		}
 	})
 	sel.Popup(func(panel *node) {
 		stylePanel(c, panel)

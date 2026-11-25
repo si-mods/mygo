@@ -93,9 +93,43 @@ type Theme struct {
 	// keeps MyGo's look. A pointer, so that a Theme stays comparable with
 	// ==: a MenuStyle holds a function.
 	Menu *MenuStyle
+	// Button styles the standalone buttons MyGo draws in the window
+	// (Button, PrimaryButton, MenuButton, PopoverMenuButton, SplitButton).
+	// nil, and any part of it left at zero, keeps MyGo's look. A pointer,
+	// so that a Theme stays comparable with ==: a ButtonStyle holds a
+	// function.
+	Button *ButtonStyle
+	// Select styles the Select drop-down controls MyGo draws in the window.
+	// nil, and any part of it left at zero, keeps MyGo's look. A pointer,
+	// so that a Theme stays comparable with ==.
+	Select *SelectStyle
 
 	// followed is what WithPreferences changed, nil where it has not.
 	followed *followedTheme
+}
+
+// ButtonStyle styles standalone buttons MyGo draws in the window
+// (Theme.Button). An app sets the parts it wants, and MyGo keeps its own
+// look for those left at zero.
+type ButtonStyle struct {
+	// Style styles a standalone button after MyGo sets its layout and
+	// default colors: its face (for example with Element.Material), border,
+	// text color, radius, padding and shadows. primary is true for
+	// PrimaryButton. Not called for toolbar or segmented buttons.
+	Style func(b Element, primary bool)
+}
+
+// SelectStyle styles Select drop-down controls MyGo draws in the window
+// (Theme.Select). An app sets the parts it wants, and MyGo keeps its own
+// look for those left at zero.
+type SelectStyle struct {
+	// Trigger styles a Select's trigger button after MyGo sets its layout
+	// and default colors. When nil, Theme.Button (if set) or MyGo's
+	// default button look applies.
+	Trigger func(b Element)
+	// Chevron draws the drop-down indicator inside the trigger button;
+	// nil keeps MyGo's chevron.
+	Chevron func(c *Context)
 }
 
 // MenuStyle styles the menus MyGo draws in the window (Theme.Menu). An app
