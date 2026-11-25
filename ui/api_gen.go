@@ -526,7 +526,8 @@ func (_handle *Context) OpenURLThen(url string, done func(err error)) {
 
 // Pointer returns where the pointer is in the window, in DIPs of the
 // window's content, whether it is over the window, and whether its
-// primary button is down, as Painter.Pointer does. A frame that reads it
+// primary button is down, as Painter.Pointer does: x and y are the
+// window's, not an element's. A frame that reads it
 // is not drawn again as it changes: read it as you paint, and ask for its
 // moves with Painter.WatchPointer.
 func (_handle *Context) Pointer() (float32, float32, bool, bool) {

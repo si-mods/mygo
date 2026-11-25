@@ -157,3 +157,63 @@ func TestWatchPointerTargets(t *testing.T) {
 		t.Errorf("a move over a handler: taken %d times, frame pending %v", took, tt.FramePending())
 	}
 }
+
+// TestWatchPointerAnimation: a move while a drawing animates at the
+// display's rate adds no frame: the animation's next one paints it, and
+// stops the watch's timer.
+func TestWatchPointerAnimation(t *testing.T) {
+	paints := 0
+	tt := NewTester(func(c *Context) {
+		Box(c).Fill().Draw(func(p *Painter, r Rect) {
+			paints++
+			p.AnimationFrame()
+			p.WatchPointer(30)
+		})
+	}, 100, 80)
+	p := paints
+	move(tt, 20, 10)
+	tt.Advance(34 * time.Millisecond)
+	if got := paints - p; got != 2 {
+		t.Errorf("an animation at 60 a second and a move paint %d frames in 34 ms, want 2", got)
+	}
+}
+
+// TestWatchPointerEnds: the frame that stops watching stops the timer a
+// move armed.
+func TestWatchPointerEnds(t *testing.T) {
+	var fps float32 = 30
+	var builds, paints int
+	tt := NewTester(watchView(&fps, &builds, &paints), 100, 80)
+	move(tt, 20, 10)
+	if tt.h.repaintAt.IsZero() {
+		t.Fatal("a move within 1/30 s armed no timer")
+	}
+	fps = 0
+	tt.Frame()
+	if !tt.h.repaintAt.IsZero() {
+		t.Errorf("the timer stays armed at %v after the watch ended", tt.h.repaintAt.Sub(tt.Now()))
+	}
+	p := paints
+	tt.Advance(100 * time.Millisecond)
+	if paints != p {
+		t.Errorf("%d frames painted after the watch ended", paints-p)
+	}
+}
+
+// TestWatchPointerPress: a press while watched builds the view anew, as
+// without the watch.
+func TestWatchPointerPress(t *testing.T) {
+	var fps float32 = 30
+	var builds, paints int
+	tt := NewTester(watchView(&fps, &builds, &paints), 100, 80)
+	tt.Advance(100 * time.Millisecond)
+	b := builds
+	tt.rt.event(platform.SurfaceEvent{Kind: platform.PointerDown, X: 20, Y: 10, Clicks: 1})
+	if !tt.FramePending() {
+		t.Fatal("a press asks for no frame")
+	}
+	tt.Advance(20 * time.Millisecond)
+	if builds != b+1 {
+		t.Errorf("a press built %d frames, want 1", builds-b)
+	}
+}

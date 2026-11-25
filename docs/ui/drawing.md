@@ -352,6 +352,10 @@ primary button then paints the window again, at most `fps` times a
 second, without building the view. Unlike `PointerPosition`, it makes no
 element look at the pointer: hovers, presses and clicks stay as they are,
 and moves over an element that takes them, as a terminal, still count.
+`Pointer` is in the window's coordinates, not the painter's: a drawing
+inside a scrolled or transformed element subtracts that element's
+position itself. On macOS, moves over a native web view in the window go
+to the web view and are not seen, as they hover nothing.
 
 ```go
 ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {

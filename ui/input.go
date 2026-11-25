@@ -216,7 +216,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		// never reach the input method.
 		rt.updateTextInput()
 		if rt.watchRate > 0 && rt.pointer() != pointer {
-			rt.pointerWatched()
+			rt.pointerWatched(ev.Kind == platform.PointerMove || ev.Kind == platform.PointerLeave)
 		}
 	}
 	return taken
