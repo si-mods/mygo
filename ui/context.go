@@ -502,6 +502,17 @@ func (c *context) Vibrancy() bool { return c.vibrancy }
 //	}
 func (c *context) WindowActive() bool { return c.rt.windowActive() }
 
+// Pointer returns where the pointer is in the window, in DIPs of the
+// window's content, whether it is over the window, and whether its
+// primary button is down, as Painter.Pointer does: x and y are the
+// window's, not an element's. A frame that reads it
+// is not drawn again as it changes: read it as you paint, and ask for its
+// moves with Painter.WatchPointer.
+func (c *context) Pointer() (x, y float32, over, primary bool) {
+	s := c.rt.pointer()
+	return s.x, s.y, s.over, s.primary
+}
+
 // emphasized reports whether the widgets show what is selected and the
 // primary action in t's accent: in a window drawn as active, and in every
 // window when t keeps it (Theme.InactiveAccent).

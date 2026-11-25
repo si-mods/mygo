@@ -22,6 +22,7 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		rt.fromWindow(&ev)
 		return rt.dragRegionAt(float32(ev.X), float32(ev.Y))
 	}
+	pointer := rt.pointer()
 	if ev.Kind >= platform.TouchDown && ev.Kind <= platform.TouchCancel {
 		// Fingers, which only views that ask follow (Touches): the
 		// pointer events the backend makes of them come on their own.
@@ -214,6 +215,9 @@ func (rt *engine) event(ev platform.SurfaceEvent) (taken bool) {
 		// after the next frame, or the text of keys typed before it would
 		// never reach the input method.
 		rt.updateTextInput()
+		if rt.watchRate > 0 && rt.pointer() != pointer {
+			rt.pointerWatched(ev.Kind == platform.PointerMove || ev.Kind == platform.PointerLeave)
+		}
 	}
 	return taken
 }

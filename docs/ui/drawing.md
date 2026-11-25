@@ -343,6 +343,29 @@ asked for later than a refresh waits for the next.
 Such a `Draw` sees the state as the view last ran: what it reads that
 changes otherwise is the view's to build anew, after `Window.Update`.
 
+A drawing that follows the pointer anywhere in the window, as a light
+under it, reads it with `p.Pointer()` (where it is in the window,
+whether it is over the window, and whether its primary button is down)
+and calls `p.WatchPointer(fps)` in every frame while it follows: the
+pointer moving, leaving the window, or pressing and letting go of its
+primary button then paints the window again, at most `fps` times a
+second, without building the view. Unlike `PointerPosition`, it makes no
+element look at the pointer: hovers, presses and clicks stay as they are,
+and moves over an element that takes them, as a terminal, still count.
+`Pointer` is in the window's coordinates, not the painter's: a drawing
+inside a scrolled or transformed element subtracts that element's
+position itself. On macOS, moves over a native web view in the window go
+to the web view and are not seen, as they hover nothing.
+
+```go
+ui.Box(c).Fill().Draw(func(p *ui.Painter, r ui.Rect) {
+	p.WatchPointer(30)
+	if x, y, over, _ := p.Pointer(); over {
+		p.Fill(ui.Rect{X: x - 20, Y: y - 20, W: 40, H: 40}, c.Theme().Accent, 20)
+	}
+})
+```
+
 When the desktop asks for less motion (`c.Preferences().ReduceMotion`),
 `Animate` and `AnimateWith` go to their target at once. `Loop` goes on, as
 the system's spinners do: it shows that something is going on. Motion you
