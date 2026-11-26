@@ -71,3 +71,25 @@ func TestSelectStyleOverridesTriggerAndChevron(t *testing.T) {
 		t.Fatal("custom SelectStyle.Chevron was not rendered")
 	}
 }
+
+func TestSegmentedStyleCallsTrackAndSegment(t *testing.T) {
+	trackCalled := false
+	var segs []bool
+	theme := LightTheme()
+	theme.Segmented = &SegmentedStyle{
+		Track: func(track Element) { trackCalled = true },
+		Segment: func(seg Element, selected bool) {
+			segs = append(segs, selected)
+		},
+	}
+
+	sel := 1
+	NewTester(func(c *Context) {
+		c.SetTheme(theme)
+		Segmented(c, &sel, "A", "B")
+	}, 400, 300)
+
+	if !trackCalled || len(segs) != 2 || segs[0] || !segs[1] {
+		t.Fatalf("SegmentedStyle calls: track=%v segs=%v, want true [false, true]", trackCalled, segs)
+	}
+}

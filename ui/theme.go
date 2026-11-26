@@ -103,6 +103,10 @@ type Theme struct {
 	// nil, and any part of it left at zero, keeps MyGo's look. A pointer,
 	// so that a Theme stays comparable with ==.
 	Select *SelectStyle
+	// Segmented styles Segmented controls MyGo draws in the window.
+	// nil, and any part of it left at zero, keeps MyGo's look. A pointer,
+	// so that a Theme stays comparable with ==.
+	Segmented *SegmentedStyle
 
 	// followed is what WithPreferences changed, nil where it has not.
 	followed *followedTheme
@@ -148,11 +152,28 @@ type MenuStyle struct {
 	// Highlight colors the row of the item the pointer or the keys are
 	// on, HighlightText its text; zero keeps the accent and its text.
 	Highlight, HighlightText Color
+	// Text and TextMuted color menu item labels and secondary text
+	// (accelerators, subtitles, disabled items); zero keeps the theme's
+	// Text and TextMuted.
+	Text, TextMuted Color
 	// Separator colors the line between groups of items; zero keeps the
 	// theme's Border.
 	Separator Color
 	// TextSize is the size of an item's text; 0 keeps the theme's.
 	TextSize float32
+}
+
+// SegmentedStyle styles Segmented controls MyGo draws in the window
+// (Theme.Segmented). An app sets the parts it wants, and MyGo keeps its
+// own look for those left at zero.
+type SegmentedStyle struct {
+	// Track styles a Segmented control's outer track after MyGo sets its
+	// layout and default colors. nil keeps MyGo's look.
+	Track func(track Element)
+	// Segment styles each segment after MyGo sets its layout and default
+	// colors. selected is true for the chosen segment. nil keeps MyGo's
+	// look.
+	Segment func(seg Element, selected bool)
 }
 
 // followedTheme is a theme before and after following the desktop's
