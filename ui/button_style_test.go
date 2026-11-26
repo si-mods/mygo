@@ -93,3 +93,55 @@ func TestSegmentedStyleCallsTrackAndSegment(t *testing.T) {
 		t.Fatalf("SegmentedStyle calls: track=%v segs=%v, want true [false, true]", trackCalled, segs)
 	}
 }
+
+func TestCheckboxStyleCallsBoxAndMark(t *testing.T) {
+	var states []CheckState
+	markCalled := false
+	theme := LightTheme()
+	theme.Checkbox = &CheckboxStyle{
+		Box: func(box, row Element, state CheckState) {
+			states = append(states, state)
+			box.Radius(0).Border(1, Hex("#1c5180"))
+		},
+		Mark: func(p *Painter, r Rect, state CheckState) {
+			markCalled = true
+		},
+	}
+
+	off, on := false, true
+	NewTester(func(c *Context) {
+		c.SetTheme(theme)
+		Checkbox(c, &off, "Off")
+		Checkbox(c, &on, "On")
+	}, 400, 300)
+
+	if len(states) != 2 || states[0] != CheckOff || states[1] != CheckOn || !markCalled {
+		t.Fatalf("CheckboxStyle calls: states=%v mark=%v, want [CheckOff CheckOn] true", states, markCalled)
+	}
+}
+
+func TestRadioStyleCallsDotAndMark(t *testing.T) {
+	var selected []bool
+	markCalled := false
+	theme := LightTheme()
+	theme.Radio = &RadioStyle{
+		Dot: func(dot, row Element, on bool) {
+			selected = append(selected, on)
+			dot.Border(1, Hex("#1c5180"))
+		},
+		Mark: func(p *Painter, r Rect, on bool) {
+			markCalled = true
+		},
+	}
+
+	choice := "b"
+	NewTester(func(c *Context) {
+		c.SetTheme(theme)
+		Radio(c, &choice, "a", "A")
+		Radio(c, &choice, "b", "B")
+	}, 400, 300)
+
+	if len(selected) != 2 || selected[0] || !selected[1] || !markCalled {
+		t.Fatalf("RadioStyle calls: selected=%v mark=%v, want [false true] true", selected, markCalled)
+	}
+}
