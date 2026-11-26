@@ -154,6 +154,9 @@ func coreSegmented(c *context, selected *int, labels ...string) *node {
 	parts := coreSegmentedBase(c, selected, len(labels))
 	g := parts.Track
 	g.AlignItems(Stretch).Padding(t.Space(0.5)).Gap(t.Space(0.5)).Radius(t.Radius).Background(t.Surface).Border(1, t.Border)
+	if t.Segmented != nil && t.Segmented.Track != nil {
+		t.Segmented.Track(wrapElement(g))
+	}
 	saved := c.buttons
 	c.buttons = segmentButtons
 	g.Children(func() {
@@ -162,6 +165,9 @@ func coreSegmented(c *context, selected *int, labels ...string) *node {
 			styleButton(c, s, false)
 			if i == *selected {
 				s.Background(pressedColor(c)).Shadow(0, 1, 2, 0, RGBA(0, 0, 0, 0.12))
+			}
+			if t.Segmented != nil && t.Segmented.Segment != nil {
+				t.Segmented.Segment(wrapElement(s), i == *selected)
 			}
 			s.Children(func() { coreText(c, label).SingleLine() })
 		}

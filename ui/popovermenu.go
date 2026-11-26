@@ -1392,12 +1392,18 @@ func (m *menuParts) drawnItem(d *drawnMenu, it *platform.MenuItem, mi *MenuItem,
 	keys := shortcutText(it.Accelerator)
 	row.keyShortcuts = keys
 	color, muted := t.Text, t.TextMuted
+	if style.Text != (Color{}) {
+		color = style.Text
+	}
+	if style.TextMuted != (Color{}) {
+		muted = style.TextMuted
+	}
 	if mi.danger {
 		color = t.Danger
 	}
 	switch {
 	case !it.Enabled:
-		color = t.TextMuted
+		color = muted
 		row.TextColor(color)
 		if row.highlighted {
 			row.Background(t.SurfaceHover)
@@ -1418,7 +1424,7 @@ func (m *menuParts) drawnItem(d *drawnMenu, it *platform.MenuItem, mi *MenuItem,
 			color = t.Danger
 		}
 		row.Background(bg).TextColor(color)
-	case mi.danger:
+	case mi.danger || style.Text != (Color{}):
 		row.TextColor(color)
 	}
 	if d.item != nil {
