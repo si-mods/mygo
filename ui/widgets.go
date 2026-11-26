@@ -279,7 +279,9 @@ func coreRadio[T comparable](c *context, selected *T, value T, label string) *no
 			dot.Background(t.Background).Border(1, t.Border.Mix(t.Text, 0.25))
 		}
 		dot.DrawOver(func(p *Painter, r Rect) {
-			if on {
+			if t.Radio != nil && t.Radio.Mark != nil {
+				t.Radio.Mark(p, r, on)
+			} else if on {
 				d := t.Space(1.5)
 				p.Fill(Rect{r.X + (r.W-d)/2, r.Y + (r.H-d)/2, d, d}, t.AccentText, d/2)
 			}
@@ -291,6 +293,9 @@ func coreRadio[T comparable](c *context, selected *T, value T, label string) *no
 			if !on && row.Hovered() {
 				dot.borderC = t.Accent
 			}
+		}
+		if t.Radio != nil && t.Radio.Dot != nil {
+			t.Radio.Dot(wrapElement(dot), wrapElement(row), on)
 		}
 		if label != "" {
 			coreText(c, label)

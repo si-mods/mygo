@@ -72,17 +72,22 @@ func coreCheckboxGroup(c *context, label string, fn func()) *node {
 // (3), as Checkbox does.
 func paintCheckbox(c *context, row, box *node, state int8) {
 	t := c.theme
+	cs := CheckState(state - 1)
 	if state > 1 {
 		box.Background(c.accent(t))
 	} else {
 		box.Background(t.Background).Border(1, t.Border.Mix(t.Text, 0.25))
 	}
 	box.DrawOver(func(p *Painter, r Rect) {
-		switch state {
-		case 2:
-			p.StrokePath(checkPath(r), t.Space(0.5), t.AccentText)
-		case 3:
-			p.Fill(Rect{r.X + r.W*0.25, r.Y + r.H/2 - 1, r.W * 0.5, 2}, t.AccentText, 1)
+		if t.Checkbox != nil && t.Checkbox.Mark != nil {
+			t.Checkbox.Mark(p, r, cs)
+		} else {
+			switch state {
+			case 2:
+				p.StrokePath(checkPath(r), t.Space(0.5), t.AccentText)
+			case 3:
+				p.Fill(Rect{r.X + r.W*0.25, r.Y + r.H/2 - 1, r.W * 0.5, 2}, t.AccentText, 1)
+			}
 		}
 		if row.FocusVisible() {
 			p.focusRingOf(row, r, box.radius)
@@ -92,6 +97,9 @@ func paintCheckbox(c *context, row, box *node, state int8) {
 		if state == 1 && row.Hovered() {
 			box.borderC = t.Accent
 		}
+	}
+	if t.Checkbox != nil && t.Checkbox.Box != nil {
+		t.Checkbox.Box(wrapElement(box), wrapElement(row), cs)
 	}
 }
 

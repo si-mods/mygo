@@ -107,6 +107,14 @@ type Theme struct {
 	// nil, and any part of it left at zero, keeps MyGo's look. A pointer,
 	// so that a Theme stays comparable with ==.
 	Segmented *SegmentedStyle
+	// Checkbox styles Checkbox, CheckboxState and CheckboxGroup boxes MyGo
+	// draws in the window. nil, and any part of it left at zero, keeps
+	// MyGo's look. A pointer, so that a Theme stays comparable with ==.
+	Checkbox *CheckboxStyle
+	// Radio styles Radio buttons MyGo draws in the window. nil, and any
+	// part of it left at zero, keeps MyGo's look. A pointer, so that a
+	// Theme stays comparable with ==.
+	Radio *RadioStyle
 
 	// followed is what WithPreferences changed, nil where it has not.
 	followed *followedTheme
@@ -174,6 +182,32 @@ type SegmentedStyle struct {
 	// colors. selected is true for the chosen segment. nil keeps MyGo's
 	// look.
 	Segment func(seg Element, selected bool)
+}
+
+// CheckboxStyle styles Checkbox, CheckboxState and CheckboxGroup boxes
+// MyGo draws in the window (Theme.Checkbox). An app sets the parts it
+// wants, and MyGo keeps its own look for those left at zero.
+type CheckboxStyle struct {
+	// Box styles the box element after MyGo sets its layout and default
+	// colors: its face (for example with Element.Material), border,
+	// radius and size. row is the clickable row element holding hover,
+	// pressed and disabled states. nil keeps MyGo's look.
+	Box func(box, row Element, state CheckState)
+	// Mark draws the check or dash inside box; nil keeps MyGo's mark.
+	Mark func(p *Painter, r Rect, state CheckState)
+}
+
+// RadioStyle styles Radio buttons MyGo draws in the window (Theme.Radio).
+// An app sets the parts it wants, and MyGo keeps its own look for those
+// left at zero.
+type RadioStyle struct {
+	// Dot styles the outer circle element after MyGo sets its layout and
+	// default colors: its face (for example with Element.Material),
+	// border, radius and size. row is the clickable row element holding
+	// hover, pressed and disabled states. nil keeps MyGo's look.
+	Dot func(dot, row Element, selected bool)
+	// Mark draws the inner dot when selected; nil keeps MyGo's dot.
+	Mark func(p *Painter, r Rect, selected bool)
 }
 
 // followedTheme is a theme before and after following the desktop's
