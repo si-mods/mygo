@@ -8,10 +8,38 @@ import (
 const (
 	// tooltipDelay is how long the pointer rests on an element before its
 	// tip shows, and tooltipWarm how soon after a tip goes another shows at
-	// once, as the pointer moves along a toolbar: Base UI's, which a
-	// theme's TooltipDelay changes.
-	tooltipDelay = 600 * time.Millisecond
-	tooltipWarm  = 400 * time.Millisecond
+	// once, as the pointer moves along a toolbar: which a theme's
+	// TooltipDelay and TooltipWarm change.
+	tooltipDelay   = 500 * time.Millisecond
+	tooltipWarm    = 400 * time.Millisecond
+	tooltipFadeIn  = 140 * time.Millisecond
+	tooltipFadeOut = 60 * time.Millisecond
+)
+
+type tooltipOverlayKey struct{ gen uint64 }
+
+var (
+	// tooltipFade fades a tooltip in and out by opacity alone, without
+	// sliding or resizing when its anchor changes.
+	tooltipFade = ElementTransition{
+		Duration:     tooltipFadeIn,
+		Ease:         EaseOut,
+		ExitDuration: tooltipFadeOut,
+		ExitEase:     EaseIn,
+		Colors:       true,
+		Enter:        &Motion{Opacity: 0},
+		Exit:         &Motion{Opacity: 0},
+	}
+	// tooltipFadeWarm shows a tooltip at once during the warm window,
+	// while still fading out when it closes.
+	tooltipFadeWarm = ElementTransition{
+		Duration:     tooltipFadeIn,
+		Ease:         EaseOut,
+		ExitDuration: tooltipFadeOut,
+		ExitEase:     EaseIn,
+		Colors:       true,
+		Exit:         &Motion{Opacity: 0},
+	}
 )
 
 // tooltips is which element's tip shows, which the frame decides once
@@ -23,6 +51,11 @@ type tooltips struct {
 	// that the keyboard focus brought it rather than the pointer.
 	shown   uint64
 	byFocus bool
+	// gen identifies a continuous run of showing tooltips so moving to a
+	// neighbor updates in place without fading out and back in; fadeIn
+	// tells whether the current run enters with a fade.
+	gen    uint64
+	fadeIn bool
 	// hover is the innermost element with a tip under the pointer since
 	// hoverSince, focus the one with the keyboard focus since focusSince.
 	hover, focus           uint64
@@ -47,10 +80,10 @@ type pendingTip struct {
 
 // TooltipBase shows a tip without a look by anchor: fn styles the tip and
 // builds its content. It shows once the pointer has rested on anchor for
-// 0.6 seconds, at once as anchor gets the keyboard focus from the
+// 0.5 seconds, at once as anchor gets the keyboard focus from the
 // keyboard, and at once too within 0.4 seconds of another tip going, as
-// the pointer moves along a toolbar; the theme's TooltipDelay changes
-// both. It goes as the pointer leaves anchor
+// the pointer moves along a toolbar; the theme's TooltipDelay and
+// TooltipWarm change them. It goes as the pointer leaves anchor
 // or presses it, as a menu or popover of anchor opens, and with Escape,
 // until the pointer comes back or the focus does; it does not show while
 // that menu or popover shows. Over elements inside one another, the
@@ -172,6 +205,11 @@ func (rt *engine) buildTooltips(c *context) {
 		c.parent = c.root
 		c.root.dir = p.dir
 		tooltipBase(c, p.anchor, func(tip *node) {
+			tr := tooltipFadeWarm
+			if rt.tips.fadeIn {
+				tr = tooltipFade
+			}
+			tip.Key(tooltipOverlayKey{rt.tips.gen}).Transition(tr)
 			tip.MaxWidth(t.Space(80)).Padding(t.Space(1.25), t.Space(2)).Radius(t.Space(1.25)).
 				Background(fill).TextColor(text).FontSize(t.FontSize - 1)
 			tip.Shadow(0, 2, 8, 0, RGBA(0, 0, 0, 0.2))
@@ -196,7 +234,8 @@ func (rt *engine) showTooltip(c *context) uint64 {
 	}
 	t.frame, t.pass = rt.frame, rt.pass
 	now := c.now
-	if t.shown != 0 {
+	prevShown := t.shown
+	if prevShown != 0 {
 		// The tip of the last frame showed until now.
 		t.lastShown = now
 	}
@@ -253,17 +292,25 @@ func (rt *engine) showTooltip(c *context) uint64 {
 		focus = 0
 	}
 	t.shown, t.byFocus = 0, false
+	warm := false
 	switch {
 	case focus != 0 && (hover == 0 || !t.focusSince.Before(t.hoverSince)):
 		t.shown, t.byFocus = focus, true
 	case hover != 0:
 		s := rt.states[hover]
-		warm := !t.lastShown.IsZero() && t.hoverSince.Sub(t.lastShown) <= s.tipWarm
+		warm = !t.lastShown.IsZero() && t.hoverSince.Sub(t.lastShown) <= s.tipWarm
 		if wait := s.tipDelay - now.Sub(t.hoverSince); wait > 0 && !warm {
 			rt.scheduleAt(now.Add(wait))
 			break
 		}
 		t.shown = hover
+	}
+	switch {
+	case t.shown == 0:
+		t.fadeIn = false
+	case prevShown == 0:
+		t.gen++
+		t.fadeIn = !warm
 	}
 	return t.shown
 }

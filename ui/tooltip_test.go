@@ -28,11 +28,11 @@ func TestTooltipBase(t *testing.T) {
 	tick := ticker(tt, now)
 	s, _ := tt.Find("save")
 	tt.Move(s.X+s.W/2, s.Y+s.H/2)
-	tick(500 * time.Millisecond)
+	tick(450 * time.Millisecond)
 	if tt.HasText("Saves the file") || tip != nil {
-		t.Fatal("the tip shows before the pointer rested 0.6 seconds")
+		t.Fatal("the tip shows before the pointer rested 0.5 seconds")
 	}
-	tick(150 * time.Millisecond)
+	tick(60 * time.Millisecond)
 	if !tt.HasText("Saves the file") || tip == nil {
 		t.Fatal("no tip once the pointer rested")
 	}
@@ -220,14 +220,16 @@ func TestTooltipInnermost(t *testing.T) {
 	}
 }
 
-// TestTooltipDelay checks that the theme's TooltipDelay sets how long the
-// pointer rests on an element before its tip shows, and the time within
-// which the next one shows at once, for the elements built with it.
+// TestTooltipDelay checks that the theme's TooltipDelay and TooltipWarm
+// set how long the pointer rests on an element before its tip shows, and
+// the time within which the next one shows at once, for the elements built
+// with it.
 func TestTooltipDelay(t *testing.T) {
-	var delay time.Duration
+	var delay, warm time.Duration
 	tt, now := clockTester(func(c *context) {
 		th := *c.Theme()
 		th.TooltipDelay = delay
+		th.TooltipWarm = warm
 		coreColumn(c).Padding(80, 40).Gap(20).Children(func() {
 			coreButton(c, "Default").Label("default").Tooltip("The default delay")
 			coreThemed(c, &th).Gap(20).Children(func() {
@@ -258,21 +260,22 @@ func TestTooltipDelay(t *testing.T) {
 	if !tt.HasText("Saves the file") {
 		t.Fatalf("no tip once the pointer rested 0.2 seconds; texts %q", tt.Texts())
 	}
-	// Outside the themed column, the default 0.6 seconds.
+	// Outside the themed column, the default 0.5 seconds.
 	away()
 	rest("default")
-	tick(300 * time.Millisecond)
+	tick(450 * time.Millisecond)
 	if tt.HasText("The default delay") {
-		t.Fatal("an element outside the theme shows its tip after 0.3 seconds")
+		t.Fatal("an element outside the theme shows its tip after 0.45 seconds")
 	}
-	tick(310 * time.Millisecond)
+	tick(60 * time.Millisecond)
 	if !tt.HasText("The default delay") {
 		t.Fatalf("no tip after the default delay; texts %q", tt.Texts())
 	}
 
-	// A longer delay, and the warm time scaling with it: two thirds.
+	// A longer delay keeps the default 0.4 second warm window when TooltipWarm is zero.
 	away()
 	delay = 1500 * time.Millisecond
+	warm = 0
 	tt.Frame()
 	rest("save")
 	tick(time.Second)
@@ -283,7 +286,35 @@ func TestTooltipDelay(t *testing.T) {
 	if !tt.HasText("Saves the file") {
 		t.Fatalf("no tip once the pointer rested 1.5 seconds; texts %q", tt.Texts())
 	}
-	// Gone for 0.9 seconds, more than the default 0.4 but less than 1:
+	// Gone for 0.3 seconds (within default 0.4s warm): the next one shows at once.
+	tt.Move(390, 390)
+	tick(16 * time.Millisecond)
+	tick(300 * time.Millisecond)
+	rest("open")
+	tick(16 * time.Millisecond)
+	if !tt.HasText("Opens a file") {
+		t.Errorf("the next tip waits 0.3 seconds after one went; texts %q", tt.Texts())
+	}
+	// Gone for 0.5 seconds (past default 0.4s warm): it waits again.
+	tt.Move(390, 390)
+	tick(16 * time.Millisecond)
+	tick(500 * time.Millisecond)
+	rest("save")
+	tick(16 * time.Millisecond)
+	if tt.HasText("Saves the file") {
+		t.Error("the tip shows at once 0.5 seconds after the last one went")
+	}
+
+	// A custom TooltipWarm extends the warm window.
+	away()
+	warm = time.Second
+	tt.Frame()
+	rest("save")
+	tick(1510 * time.Millisecond)
+	if !tt.HasText("Saves the file") {
+		t.Fatalf("no tip once the pointer rested 1.5 seconds; texts %q", tt.Texts())
+	}
+	// Gone for 0.9 seconds, more than the default 0.4 but less than TooltipWarm (1s):
 	// the next one shows at once.
 	tt.Move(390, 390)
 	tick(16 * time.Millisecond)
@@ -293,7 +324,7 @@ func TestTooltipDelay(t *testing.T) {
 	if !tt.HasText("Opens a file") {
 		t.Errorf("the next tip waits 0.9 seconds after one went; texts %q", tt.Texts())
 	}
-	// Gone for longer than that, it waits again.
+	// Gone for longer than TooltipWarm, it waits again.
 	tt.Move(390, 390)
 	tick(16 * time.Millisecond)
 	tick(1100 * time.Millisecond)
@@ -303,13 +334,105 @@ func TestTooltipDelay(t *testing.T) {
 		t.Error("the tip shows at once 1.1 seconds after the last one went")
 	}
 
+	// A negative TooltipWarm turns off the warm window.
+	away()
+	delay = 500 * time.Millisecond
+	warm = -1
+	tt.Frame()
+	rest("save")
+	tick(510 * time.Millisecond)
+	if !tt.HasText("Saves the file") {
+		t.Fatal("no tip after 0.5 seconds")
+	}
+	tt.Move(390, 390)
+	tick(16 * time.Millisecond)
+	rest("open")
+	tick(16 * time.Millisecond)
+	if tt.HasText("Opens a file") {
+		t.Error("a negative TooltipWarm still showed the next tip at once")
+	}
+
 	// A negative delay shows it at once.
 	away()
 	delay = -1
+	warm = 0
 	tt.Frame()
 	rest("save")
 	if !tt.HasText("Saves the file") {
 		t.Errorf("a negative delay does not show the tip at once; texts %q", tt.Texts())
+	}
+}
+
+// TestTooltipFade checks that Tooltip fades in over 140ms (EaseOut), fades
+// out over 60ms (EaseIn), and updates in place without fading when moving
+// directly to a neighboring anchor during the warm window.
+func TestTooltipFade(t *testing.T) {
+	tt, now := clockTester(func(c *context) {
+		th := *c.Theme()
+		th.Background = RGB(255, 255, 255)
+		th.Inverse = RGB(255, 0, 0)
+		th.InverseText = RGB(255, 0, 0)
+		c.SetTheme(&th)
+		coreColumn(c).Fill().Background(RGB(255, 255, 255)).Padding(80, 40).Gap(40).Children(func() {
+			coreButton(c, "Save").Label("save").Tooltip("Saves the file")
+			coreButton(c, "Open").Label("open").Tooltip("Opens a file")
+		})
+	}, 400, 300)
+	tick := ticker(tt, now)
+	sampleG := func(text string) uint8 {
+		r, ok := tt.Find(text)
+		if !ok {
+			t.Fatalf("no tip text %q", text)
+		}
+		return tt.Image().RGBAAt(int(r.X+r.W/2), int(r.Y+r.H/2)).G
+	}
+
+	s, _ := tt.Find("save")
+	tt.Move(s.X+s.W/2, s.Y+s.H/2)
+	tick(tooltipDelay)
+	if !tt.HasText("Saves the file") {
+		t.Fatal("tip did not appear after tooltipDelay")
+	}
+	// On the opening frame, alpha starts at 0 (white background, G=255).
+	if g := sampleG("Saves the file"); g < 240 {
+		t.Errorf("opening frame G=%d, want near 255 (fading in from 0)", g)
+	}
+	// Mid-fade-in (~70ms): partially opaque red over white.
+	tick(tooltipFadeIn / 2)
+	if g := sampleG("Saves the file"); g <= 10 || g >= 245 {
+		t.Errorf("mid fade-in G=%d, want strictly between 10 and 245", g)
+	}
+	// After 140ms: fully opaque red (G=0).
+	tick(tooltipFadeIn)
+	if g := sampleG("Saves the file"); g != 0 {
+		t.Errorf("settled tip G=%d, want 0", g)
+	}
+
+	// Moving directly to a neighbor updates in place without fading out and back in.
+	o, _ := tt.Find("open")
+	tt.Move(o.X+o.W/2, o.Y+o.H/2)
+	tick(16 * time.Millisecond)
+	if !tt.HasText("Opens a file") || tt.HasText("Saves the file") {
+		t.Fatalf("neighbor switch: texts %q", tt.Texts())
+	}
+	if g := sampleG("Opens a file"); g != 0 {
+		t.Errorf("neighbor switch G=%d, want 0 (updated in place without re-fading)", g)
+	}
+	openTipRect, _ := tt.Find("Opens a file")
+	ox, oy := int(openTipRect.X+openTipRect.W/2), int(openTipRect.Y+openTipRect.H/2)
+
+	// Leaving the anchor fades out over 60ms (EaseIn).
+	tt.Move(390, 290)
+	tick(tooltipFadeOut / 2)
+	if tt.HasText("Opens a file") {
+		t.Error("exiting tooltip still reported by HasText")
+	}
+	if g := tt.Image().RGBAAt(ox, oy).G; g <= 5 || g >= 250 {
+		t.Errorf("mid fade-out G=%d, want strictly between 5 and 250", g)
+	}
+	tick(tooltipFadeOut)
+	if g := tt.Image().RGBAAt(ox, oy).G; g != 255 {
+		t.Errorf("after fade-out G=%d, want 255", g)
 	}
 }
 

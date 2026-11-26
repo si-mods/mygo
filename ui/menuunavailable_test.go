@@ -175,6 +175,7 @@ func TestMenuUnavailablePointerSkip(t *testing.T) {
 	}, 400, 300)
 	tt.RightClick("Report.pdf")
 	tt.Move(center(at(t, tt, "More")))
+	tt.Advance(submenuOpenDelay)
 	if !tt.HasText("Deeper") {
 		t.Fatal("More's submenu did not open")
 	}

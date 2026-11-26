@@ -344,6 +344,17 @@ type menuShown struct {
 	// takes the highlight unless it moves on toward the submenu.
 	last [2]float32
 	aim  time.Time
+	// pendingSub is a submenu item hovered by the pointer, waiting until
+	// pendingSubAt to open its submenu (submenuOpenDelay).
+	pendingSub      uint64
+	pendingSubLevel int
+	pendingSubAt    time.Time
+}
+
+func (s *menuShown) clearPendingSub() {
+	s.pendingSub = 0
+	s.pendingSubLevel = 0
+	s.pendingSubAt = time.Time{}
 }
 
 // menuLevel is a menu that shows: the item, by its element, whose submenu
@@ -357,10 +368,15 @@ type menuLevel struct {
 	first, last, reveal bool
 }
 
-// menuAimGrace is how long the pointer heading for a submenu across the
-// items of the menu holding it keeps the submenu open after its last move
-// toward it (aiming), as in macOS's menus and Radix's.
-const menuAimGrace = 300 * time.Millisecond
+const (
+	// menuAimGrace is how long the pointer heading for a submenu across the
+	// items of the menu holding it keeps the submenu open after its last move
+	// toward it (aiming), as in macOS's menus and Radix's.
+	menuAimGrace = 300 * time.Millisecond
+	// submenuOpenDelay is how long the pointer rests on a submenu item before
+	// its submenu opens, so sweeping across it opens nothing.
+	submenuOpenDelay = 150 * time.Millisecond
+)
 
 type menuKey struct{}
 
@@ -518,6 +534,9 @@ func (m *menuParts) Popup(fn func(panel *node)) *node {
 	}
 	if m.button {
 		m.Trigger.expanded = *m.open
+	}
+	if m.moved && s.aim.IsZero() {
+		s.pointer = [2]float32{rt.pointerX, rt.pointerY}
 	}
 	s.last = [2]float32{rt.pointerX, rt.pointerY}
 	return root
@@ -688,34 +707,61 @@ func (m *menuParts) item(role Role, sub, unavailable bool) *node {
 	}
 	row.highlighted = lv.hi == row.id
 	if row.disabled() || m.closed {
+		if s.pendingSub == row.id && s.pendingSubLevel == level {
+			s.clearPendingSub()
+		}
 		return row
 	}
 	// A disabled submenu item (unavailable) never opens its submenu.
 	opens := sub && !row.unavailable
 	if m.moved && row.Hovered() && !m.aiming(level, row.id) {
-		// The pointer moved onto it: it is highlighted, and its submenu
-		// opens while those of the others close. The keys go on from it,
-		// and the focus is the pointer's again, as it shows no ring. One the
-		// keys skip highlights nothing and closes the submenu open, as Qt's
-		// menus do; its tip still shows.
+		// The pointer moved onto it: it is highlighted, and a submenu item
+		// waits submenuOpenDelay before opening while other submenus close.
+		// The keys go on from it, and the focus is the pointer's again, as
+		// it shows no ring. One the keys skip highlights nothing and closes
+		// the submenu open, as Qt's menus do; its tip still shows.
 		m.moved = false
 		rt.focusVisible = false
 		s.pointer, s.aim = [2]float32{rt.pointerX, rt.pointerY}, time.Time{}
 		switch {
 		case !row.reachedInMenu():
+			s.clearPendingSub()
 			if lv.hi != 0 || len(s.levels) > level+1 {
 				m.highlight(level, 0)
 			}
 		case opens && !open:
-			m.highlight(level, row.id)
-			m.openSubmenu(level, row.id, false)
+			if lv.hi != row.id || len(s.levels) > level+1 {
+				m.highlight(level, row.id)
+			}
+			if s.pendingSub != row.id || s.pendingSubLevel != level {
+				s.pendingSub = row.id
+				s.pendingSubLevel = level
+				s.pendingSubAt = m.c.now.Add(submenuOpenDelay)
+				rt.scheduleAt(s.pendingSubAt)
+			}
 		case !opens && (lv.hi != row.id || len(s.levels) > level+1):
+			s.clearPendingSub()
 			m.highlight(level, row.id)
+		default:
+			if !opens || open {
+				s.clearPendingSub()
+			}
 		}
 		if row.reachedInMenu() && (rt.focused == row.id || !rt.within(rt.focused, row.id)) {
 			// The menu takes the focus back, but from an element inside
 			// the item, as a text input of its content.
 			s.focus = level
+		}
+	}
+	if s.pendingSub == row.id && s.pendingSubLevel == level {
+		switch {
+		case !opens || open || !row.Hovered():
+			s.clearPendingSub()
+		case !m.c.now.Before(s.pendingSubAt):
+			s.clearPendingSub()
+			m.openSubmenu(level, row.id, false)
+		default:
+			rt.scheduleAt(s.pendingSubAt)
 		}
 	}
 	if !row.reachedInMenu() {
@@ -875,6 +921,7 @@ func menuItemName(it *node) string {
 // submenus open in it.
 func (m *menuParts) highlight(level int, id uint64) {
 	s := m.s
+	s.clearPendingSub()
 	s.levels[level].hi = id
 	s.levels = s.levels[:level+1]
 	m.c.rt.consumed = true
@@ -884,6 +931,7 @@ func (m *menuParts) highlight(level int, id uint64) {
 // keyboard opening it, it takes the focus on its first item.
 func (m *menuParts) openSubmenu(level int, id uint64, keyboard bool) {
 	s := m.s
+	s.clearPendingSub()
 	s.levels = append(s.levels[:level+1], menuLevel{sub: id, first: keyboard})
 	if keyboard {
 		s.focus = level + 1
@@ -895,6 +943,7 @@ func (m *menuParts) openSubmenu(level int, id uint64, keyboard bool) {
 // holding it.
 func (m *menuParts) closeLevel(level int) {
 	s := m.s
+	s.clearPendingSub()
 	s.levels = s.levels[:level]
 	s.focus = level - 1
 	m.c.rt.consumed = true
