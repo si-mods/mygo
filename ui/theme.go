@@ -82,11 +82,14 @@ type Theme struct {
 	FontSize float32
 	Font     string
 	// TooltipDelay is how long the pointer rests on an element before its
-	// tooltip shows (Tooltip, TooltipBase): 0 is 0.6 seconds, and a
-	// negative delay shows it at once. Within two thirds of it after
-	// another tip goes, as the pointer moves along a toolbar, the next one
-	// shows at once: 0.4 seconds by default.
+	// tooltip shows (Tooltip, TooltipBase): 0 is 0.5 seconds, and a
+	// negative delay shows it at once.
 	TooltipDelay time.Duration
+	// TooltipWarm is how soon after a tip goes another shows at once, as
+	// the pointer moves along a toolbar: 0 is 0.4 seconds, and a negative
+	// value turns the warm window off so every tip waits TooltipDelay.
+	// Ignored when TooltipDelay is negative.
+	TooltipWarm time.Duration
 	// Menu styles the menus MyGo draws in the window, those of PopoverMenu,
 	// PopoverMenuButton and of every context menu once the window draws
 	// them (Context.SetDrawMenus). nil, and any part of it left at zero,
@@ -271,16 +274,24 @@ func (t *Theme) scrollbarWidth() float32 {
 
 // tooltipDelay returns how long the pointer rests on an element before its
 // tip shows (TooltipDelay), and how soon after a tip goes the next one
-// shows at once.
+// shows at once (TooltipWarm).
 func (t *Theme) tooltipDelay() (delay, warm time.Duration) {
-	switch d := t.TooltipDelay; {
-	case d == 0:
-		return tooltipDelay, tooltipWarm
-	case d < 0:
+	if t.TooltipDelay < 0 {
 		return 0, 0
-	default:
-		return d, d * 2 / 3
 	}
+	delay = t.TooltipDelay
+	if delay == 0 {
+		delay = tooltipDelay
+	}
+	switch {
+	case t.TooltipWarm < 0:
+		warm = 0
+	case t.TooltipWarm > 0:
+		warm = t.TooltipWarm
+	default:
+		warm = tooltipWarm
+	}
+	return delay, warm
 }
 
 // Rem returns n times the theme's FontSize, as CSS's rem, to size elements

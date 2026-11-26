@@ -329,9 +329,10 @@ func TestPopoverMenuPointer(t *testing.T) {
 		t.Errorf("clicking Delete, disabled: chose %q, menu shows %v", a.chosen, menuShows(tt))
 	}
 
-	// The pointer opens a submenu as it moves onto its item.
+	// The pointer opens a submenu after resting on its item.
 	r, _ := tt.Find("Sort by")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(submenuOpenDelay)
 	if !tt.HasText("Name") {
 		t.Fatal("the submenu did not open under the pointer")
 	}
@@ -345,6 +346,7 @@ func TestPopoverMenuPointer(t *testing.T) {
 	tt.RightClick("Report.pdf")
 	r, _ = tt.Find("Move to")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(submenuOpenDelay)
 	r, _ = tt.Find("Open")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
 	if tt.HasText("Desktop") {
@@ -388,6 +390,7 @@ func TestPopoverMenuCloses(t *testing.T) {
 	tt.RightClick("Report.pdf")
 	r, _ = tt.Find("Move to")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(submenuOpenDelay)
 	r, _ = tt.Find("Desktop")
 	tt.Press(r.X+1, r.Y+1)
 	if !menuShows(tt) || !tt.HasText("Desktop") {
@@ -852,9 +855,10 @@ func TestPopoverMenuButtonPointer(t *testing.T) {
 		t.Errorf("clicking Delete, disabled: chose %q, menu shows %v", a.chosen, menuShows(tt))
 	}
 
-	// The pointer opens a submenu as it moves onto its item.
+	// The pointer opens a submenu after resting on its item.
 	r, _ := tt.Find("Sort by")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(submenuOpenDelay)
 	if err := tt.Click("Date"); err != nil {
 		t.Fatal(err)
 	}

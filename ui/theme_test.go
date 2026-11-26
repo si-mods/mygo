@@ -120,6 +120,8 @@ func inverseFills(t *testing.T, th *Theme) (tooltip, toast Color) {
 	tt.Move(b.X+b.W/2, b.Y+b.H/2)
 	tt.rt.tips.hoverSince = tt.now.Add(-time.Second)
 	tt.Frame()
+	// Past its fading in.
+	tt.Advance(tooltipFadeIn)
 	tooltip = fill("Save the note")
 	tt.Click("Save")
 	// Past its fading in.

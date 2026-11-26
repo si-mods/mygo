@@ -3131,10 +3131,10 @@ func Toolbar(c *Context, fn func()) Element {
 
 // TooltipBase shows a tip without a look by anchor: fn styles the tip and
 // builds its content. It shows once the pointer has rested on anchor for
-// 0.6 seconds, at once as anchor gets the keyboard focus from the
+// 0.5 seconds, at once as anchor gets the keyboard focus from the
 // keyboard, and at once too within 0.4 seconds of another tip going, as
-// the pointer moves along a toolbar; the theme's TooltipDelay changes
-// both. It goes as the pointer leaves anchor
+// the pointer moves along a toolbar; the theme's TooltipDelay and
+// TooltipWarm change them. It goes as the pointer leaves anchor
 // or presses it, as a menu or popover of anchor opens, and with Escape,
 // until the pointer comes back or the focus does; it does not show while
 // that menu or popover shows. Over elements inside one another, the

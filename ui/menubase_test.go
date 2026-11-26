@@ -177,6 +177,7 @@ func TestMenuBasePointer(t *testing.T) {
 	}
 	r, _ = tt.Find("Sort by")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Advance(submenuOpenDelay)
 	if !tt.HasText("Date") {
 		t.Fatal("the submenu did not open under the pointer")
 	}

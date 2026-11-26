@@ -78,10 +78,93 @@ func openMoveTo(t *testing.T, tt *Tester, x, y float32) (px, py float32) {
 	box := menuLevelBox(t, tt, 0)
 	px, py = box.X+box.W/2, my
 	tt.Move(px, py)
+	tt.Advance(submenuOpenDelay)
 	if !tt.HasText("Desktop") || !slices.Equal(menuHighlights(tt), []string{"Move to"}) {
 		t.Fatalf("the submenu did not open on Move to: highlighted %q", menuHighlights(tt))
 	}
 	return px, py
+}
+
+// TestPopoverMenuSubmenuHoverIntent checks that hovering a submenu item
+// highlights it immediately but waits submenuOpenDelay (150ms) before
+// opening its submenu, so sweeping quickly across it opens nothing, while
+// clicking or pressing Right/Enter/Space opens it immediately.
+func TestPopoverMenuSubmenuHoverIntent(t *testing.T) {
+	a := &aimMenuApp{}
+	tt, now := clockTester(a.view, 600, 400)
+	tick := ticker(tt, now)
+	_, ry := textCenter(t, tt, "Report.pdf")
+	tt.RightClickAt(40, ry)
+	box := menuLevelBox(t, tt, 0)
+	_, my := textCenter(t, tt, "Move to")
+	_, cy := textCenter(t, tt, "Copy")
+	mx := box.X + box.W/2
+
+	// Sweeping quickly across Move to onto Copy opens nothing.
+	tt.Move(mx, my)
+	if tt.HasText("Desktop") {
+		t.Fatal("submenu opened immediately on pointer hover")
+	}
+	if !slices.Equal(menuHighlights(tt), []string{"Move to"}) {
+		t.Fatalf("hovering Move to did not highlight it: %q", menuHighlights(tt))
+	}
+	tick(submenuOpenDelay - 20*time.Millisecond)
+	if tt.HasText("Desktop") {
+		t.Fatal("submenu opened before submenuOpenDelay elapsed")
+	}
+	tt.Move(mx, cy)
+	tick(500 * time.Millisecond)
+	if tt.HasText("Desktop") || !slices.Equal(menuHighlights(tt), []string{"Copy"}) {
+		t.Fatalf("after sweeping to Copy: submenu shows %v, highlighted %q", tt.HasText("Desktop"), menuHighlights(tt))
+	}
+
+	// Moving off the menu to empty space before 150ms cancels the pending open.
+	tt.Move(mx, my)
+	tick(submenuOpenDelay / 2)
+	tt.Move(580, 380)
+	tick(500 * time.Millisecond)
+	if tt.HasText("Desktop") {
+		t.Fatal("submenu opened after pointer left the menu before submenuOpenDelay")
+	}
+
+	// Resting on Move to for 150ms opens its submenu.
+	tt.Move(mx, my)
+	tick(submenuOpenDelay - time.Millisecond)
+	if tt.HasText("Desktop") {
+		t.Fatal("submenu opened 1ms before submenuOpenDelay")
+	}
+	tick(time.Millisecond)
+	if !tt.HasText("Desktop") || !slices.Equal(menuHighlights(tt), []string{"Move to"}) {
+		t.Fatalf("resting 150ms on Move to did not open submenu: shows %v, highlighted %q", tt.HasText("Desktop"), menuHighlights(tt))
+	}
+
+	// Clicking Move to opens its submenu immediately (0ms).
+	tt.Move(mx, cy)
+	if tt.HasText("Desktop") {
+		t.Fatal("moving straight down to Copy did not close submenu")
+	}
+	tt.ClickAt(mx, my)
+	if !tt.HasText("Desktop") {
+		t.Fatal("clicking Move to did not open its submenu immediately")
+	}
+
+	// Keyboard Right opens the submenu immediately (0ms), and Left closes it.
+	tt.Key(0, KeyDown) // onto Copy, closing Move to's submenu
+	if tt.HasText("Desktop") {
+		t.Fatal("Down did not close submenu")
+	}
+	tt.Key(0, KeyUp) // back onto Move to
+	if tt.HasText("Desktop") {
+		t.Fatal("Up onto Move to opened submenu without Right")
+	}
+	tt.Key(0, KeyRight)
+	if !tt.HasText("Desktop") {
+		t.Fatal("Right did not open submenu immediately")
+	}
+	tt.Key(0, KeyLeft)
+	if tt.HasText("Desktop") {
+		t.Fatal("Left did not close submenu")
+	}
 }
 
 // TestPopoverMenuAimsAtSubmenu checks the pointer moving across the items
