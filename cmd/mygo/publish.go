@@ -119,10 +119,9 @@ func publishGitHub(c *Config, artifacts []string) error {
 			continue
 		}
 		t := con.start("Uploading " + uploadNames(batch))
-		args := append([]string{"release", "upload", tag, "--repo", repo, "--clobber"}, batch...)
-		if out, err := exec.Command(gh, args...).CombinedOutput(); err != nil {
+		if err := uploadBatch(gh, repo, tag, batch); err != nil {
 			t.fail()
-			return fmt.Errorf("gh release upload: %v\n%s", err, out)
+			return err
 		}
 		t.done("Uploaded " + uploadNames(batch))
 	}
@@ -133,6 +132,32 @@ func publishGitHub(c *Config, artifacts []string) error {
 	}
 	logf("Uploaded to the release %s of %s; publish it when every platform is there:\n  gh release edit %s --repo %s --draft=false%s", tag, repo, tag, repo, latest)
 	return nil
+}
+
+// uploadRetryDelay is the wait before uploadBatch tries again.
+var uploadRetryDelay = 2 * time.Second
+
+// uploadBatch uploads files to the release tag, replacing those there. Two
+// builds of one release, as of two platforms, may upload their SHA256SUMS at
+// once: --clobber deletes the asset and then creates it, so both create it
+// and one fails with HTTP 422 "already exists". That one merges the
+// SHA256SUMS the other left, and tries again.
+func uploadBatch(gh, repo, tag string, files []string) error {
+	args := append([]string{"release", "upload", tag, "--repo", repo, "--clobber"}, files...)
+	const attempts = 4
+	for i := 1; ; i++ {
+		out, err := exec.Command(gh, args...).CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		if i == attempts || !strings.Contains(string(out), "already exists") || !slices.ContainsFunc(files, func(f string) bool { return filepath.Base(f) == checksumsName }) {
+			return fmt.Errorf("gh release upload: %v\n%s", err, out)
+		}
+		time.Sleep(uploadRetryDelay)
+		if err := mergeReleaseChecksums(gh, repo, tag, files); err != nil {
+			return err
+		}
+	}
 }
 
 // mergeReleaseChecksums merges the SHA256SUMS of the release tag, if it

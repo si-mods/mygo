@@ -90,6 +90,50 @@ func TestPublishGitHubChecksums(t *testing.T) {
 	}
 }
 
+// Two builds that upload at once: the upload that loses with HTTP 422
+// "already exists" on SHA256SUMS merges the other's lines and tries again.
+func TestPublishGitHubChecksumsUploadRace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell script as gh")
+	}
+	old := uploadRetryDelay
+	uploadRetryDelay = 0
+	t.Cleanup(func() { uploadRetryDelay = old })
+	bin, dist, state := t.TempDir(), t.TempDir(), t.TempDir()
+	other := strings.Repeat("b", 64)
+	// gh: the first upload fails as the other build wins the race, and the
+	// release then holds the other build's SHA256SUMS.
+	script := `#!/bin/sh
+case "$2 $*" in
+"view "*--json*) if [ -e STATE/won ]; then printf 'app-setup-1.2.0-arm64.exe\nSHA256SUMS\n'; else printf 'x\n'; fi ;;
+download*) for a; do last=$a; done; printf 'OTHER  app-setup-1.2.0-arm64.exe\n' > "$last/SHA256SUMS" ;;
+upload*) echo x >> STATE/uploads
+  if [ ! -e STATE/won ]; then touch STATE/won; echo 'HTTP 422: Validation Failed (already_exists) - asset SHA256SUMS already exists' >&2; exit 1; fi ;;
+esac
+`
+	script = strings.NewReplacer("STATE", state, "OTHER", other).Replace(script)
+	os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	exe := filepath.Join(dist, "app-setup-1.2.0-amd64.exe")
+	os.WriteFile(exe, []byte("hello"), 0o644)
+	sums, err := writeChecksums(dist, []string{exe})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &Config{root: t.TempDir(), Version: "1.2.0", Updates: &Updates{GitHub: "me/app", TagPrefix: "v"}}
+	// The release has no SHA256SUMS yet when this build reads it.
+	if err := publishGitHub(c, []string{exe, sums}); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := os.ReadFile(filepath.Join(state, "uploads")); strings.Count(string(n), "x") != 2 {
+		t.Errorf("uploads: %q, want 2", n)
+	}
+	b, _ := os.ReadFile(sums)
+	if !strings.Contains(string(b), other+"  app-setup-1.2.0-arm64.exe\n") || !strings.Contains(string(b), "  app-setup-1.2.0-amd64.exe\n") {
+		t.Errorf("SHA256SUMS:\n%s", b)
+	}
+}
+
 func TestInstallPS1(t *testing.T) {
 	pub, _, _ := ed25519.GenerateKey(nil)
 	key := base64.StdEncoding.EncodeToString(pub)
